@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { randomUUID } from "crypto";
 
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "../data");
 
@@ -22,7 +23,7 @@ function write(file, data) {
 
 // ─── User Profile ─────────────────────────────────────────────────────────────
 export function getProfile() {
-  return read("profile.json", { name: "", role: "", style: "", ownerPhone: "" });
+  return read("profile.json", { name: "", role: "", style: "", ownerPhone: "", notifyOwner: true });
 }
 
 export function saveProfile(profile) {
@@ -52,14 +53,79 @@ export function getAllNotesText() {
   return entries.map(([k, v]) => `• ${k}: ${v.value}`).join("\n");
 }
 
-// ─── Conversation history (persistent, per user) ──────────────────────────────
+// ─── Contacts ─────────────────────────────────────────────────────────────────
+export function getContacts() {
+  return read("contacts.json", {});
+}
+
+export function saveContact(phone, name, notes = "") {
+  const contacts = getContacts();
+  contacts[phone] = { name, notes, savedAt: new Date().toISOString() };
+  write("contacts.json", contacts);
+}
+
+export function getContactName(phone) {
+  return getContacts()[phone]?.name ?? null;
+}
+
+export function getAllContactsText() {
+  const entries = Object.entries(getContacts());
+  if (entries.length === 0) return "אין אנשי קשר שמורים";
+  return entries.map(([phone, c]) => `• ${c.name} — ${phone}${c.notes ? ` (${c.notes})` : ""}`).join("\n");
+}
+
+// ─── Tasks ────────────────────────────────────────────────────────────────────
+export function getTasks() {
+  return read("tasks.json", []);
+}
+
+export function addTask({ title, dueDate = null, notes = "" }) {
+  const tasks = getTasks();
+  const task = { id: randomUUID(), title, dueDate, notes, done: false, createdAt: new Date().toISOString() };
+  tasks.push(task);
+  write("tasks.json", tasks);
+  return task;
+}
+
+export function completeTask(id) {
+  const tasks = getTasks();
+  const task = tasks.find((t) => t.id === id);
+  if (task) { task.done = true; task.completedAt = new Date().toISOString(); }
+  write("tasks.json", tasks);
+  return !!task;
+}
+
+export function deleteTask(id) {
+  const tasks = getTasks();
+  const updated = tasks.filter((t) => t.id !== id);
+  write("tasks.json", updated);
+  return tasks.length !== updated.length;
+}
+
+export function getPendingTasks() {
+  return getTasks().filter((t) => !t.done);
+}
+
+export function getTasksText(filter = "pending") {
+  const tasks = filter === "all" ? getTasks() : getPendingTasks();
+  if (tasks.length === 0) return filter === "all" ? "אין משימות" : "אין משימות פתוחות";
+  return tasks
+    .map((t) => {
+      const status = t.done ? "✅" : "⬜";
+      const due = t.dueDate ? ` (עד ${new Date(t.dueDate).toLocaleDateString("he-IL")})` : "";
+      return `${status} ${t.title}${due} [${t.id.slice(0, 6)}]`;
+    })
+    .join("\n");
+}
+
+// ─── Conversation history ─────────────────────────────────────────────────────
 export function getConversation(userId) {
   return read("conversations.json", {})[userId] ?? [];
 }
 
 export function saveConversation(userId, history) {
   const all = read("conversations.json", {});
-  all[userId] = history.slice(-50); // keep last 50 messages
+  all[userId] = history.slice(-50);
   write("conversations.json", all);
 }
 

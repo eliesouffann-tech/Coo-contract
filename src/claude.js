@@ -1,56 +1,82 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { getConversation, saveConversation, getProfile, getAllNotesText } from "./memory.js";
+import {
+  getConversation, saveConversation,
+  getProfile, getAllNotesText, getAllContactsText, getTasksText,
+} from "./memory.js";
 import { TOOLS, executeTool } from "./tools.js";
+import { isCalendarReady, getUpcomingEventsText } from "./calendar.js";
 
 const client = new Anthropic();
 
-function buildSystemPrompt(fromPhone) {
+async function buildSystemPrompt(fromPhone) {
   const profile = getProfile();
   const notes = getAllNotesText();
-  const now = new Date().toLocaleString("he-IL", { timeZone: "Asia/Jerusalem" });
+  const contacts = getAllContactsText();
+  const tasks = getTasksText("pending");
+  const now = new Date().toLocaleString("he-IL", {
+    timeZone: "Asia/Jerusalem",
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  let calendarSection = "";
+  if (isCalendarReady()) {
+    try {
+      const events = await getUpcomingEventsText();
+      calendarSection = `\n📅 לוח זמנים היום:\n${events}`;
+    } catch { /* ignore */ }
+  }
+
   const isOwner = profile.ownerPhone && fromPhone === profile.ownerPhone;
 
   let identity;
-
   if (profile.name) {
     if (isOwner) {
       identity = `אתה הסוכן האישי של ${profile.name}${profile.role ? ` (${profile.role})` : ""}.
-כרגע ${profile.name} בעצמו מדבר איתך. עזור לו בכל מה שהוא צריך.
-יכולותיך: לנתח מסמכים ותמונות, לקבוע תזכורות, לשמור מידע חשוב, לכתוב טקסטים, לחקור נושאים.`;
+${profile.name} עצמו מדבר איתך עכשיו.
+עזור לו בכל: ניתוח מסמכים, קביעת פגישות, תזכורות, כתיבת טקסטים, מחקר, חישובים — הכל.`;
     } else {
       identity = `אתה ${profile.name}${profile.role ? `, ${profile.role}` : ""}.
-מישהו שלח הודעה ל-${profile.name}. ענה בשמו — כאילו אתה הוא.
-${profile.style ? `סגנון הכתיבה שלו: ${profile.style}` : ""}
-אל תזכיר שאתה AI. ענה בטבעיות כאילו אתה ${profile.name} עצמו.`;
+מישהו שלח הודעה ל-${profile.name}. ענה בדיוק כמוהו — באותו סגנון, אותה שפה, אותה אישיות.
+${profile.style ? `הסגנון שלו: ${profile.style}` : ""}
+אל תזכיר שאתה AI. ענה בטבעיות כאילו אתה ${profile.name} עצמו.
+אם השאלה דורשת מידע שאין לך — ענה בצורה כללית או אמור שתחזור עם תשובה.`;
     }
   } else {
     identity = `אתה סוכן AI אישי.
-💡 כדי שהסוכן יוכל לענות בשמך, שלח: /profile`;
+💡 שלח /profile כדי להגדיר את הפרופיל שלך — ואז אענה לאנשים בשמך.`;
   }
 
   return `${identity}
 
-📋 מידע שמור בזיכרון:
+🕐 עכשיו: ${now}${calendarSection}
+
+📋 זיכרון:
 ${notes}
 
-🕐 עכשיו: ${now}
+👥 אנשי קשר:
+${contacts}
+
+✅ משימות פתוחות:
+${tasks}
 
 הנחיות:
-- ענה בשפה שהמשתמש כותב בה
-- השתמש בכלים (תזכורות, זיכרון) באופן יזום — אם מישהו אומר "תזכיר לי", השתמש ב-set_reminder מיד
-- אם מישהו אומר "תזכור ש...", השתמש ב-save_to_memory מיד
-- הודעות WhatsApp — קצר ולעניין. סעיפים קצרים עם אמוג'י לנוחות קריאה`;
+- ענה בשפה שפונים אליך בה
+- השתמש בכלים באופן יזום — "תזכיר לי" → set_reminder מיד, "תזכור ש" → save_to_memory מיד, "תקבע פגישה" → create_calendar_event
+- כשמישהו מציין את שמו → save_contact
+- הודעות WhatsApp — קצר, ברור, סעיפים קצרים עם אמוג'י`;
 }
 
 export async function chat(fromPhone, userContent) {
   const history = getConversation(fromPhone);
 
-  // Build content for Claude (string or multimodal array)
   const contentForClaude = typeof userContent === "string"
     ? userContent
-    : userContent.blocks; // { blocks: [...], summary: "..." }
+    : userContent.blocks;
 
-  // Working messages for this turn (includes full thinking/tool blocks)
   const working = [
     ...history,
     { role: "user", content: contentForClaude },
@@ -58,25 +84,23 @@ export async function chat(fromPhone, userContent) {
 
   let reply = "";
 
-  // Agentic loop
   while (true) {
     const response = await client.messages.create({
       model: "claude-opus-4-8",
       max_tokens: 4096,
       thinking: { type: "adaptive" },
-      system: buildSystemPrompt(fromPhone),
+      system: await buildSystemPrompt(fromPhone),
       tools: TOOLS,
       messages: working,
     });
 
-    // Add full response (including thinking blocks) to working for the loop
     working.push({ role: "assistant", content: response.content });
 
     if (response.stop_reason === "tool_use") {
       const results = [];
       for (const block of response.content) {
         if (block.type === "tool_use") {
-          console.log(`🔧 ${block.name}`, JSON.stringify(block.input).slice(0, 100));
+          console.log(`🔧 ${block.name}`, JSON.stringify(block.input).slice(0, 120));
           const result = await executeTool(block.name, block.input);
           results.push({
             type: "tool_result",
@@ -96,11 +120,8 @@ export async function chat(fromPhone, userContent) {
     break;
   }
 
-  // Persist only text (no thinking/tool blocks — keeps history compact)
-  const userSummary = typeof userContent === "string"
-    ? userContent
-    : userContent.summary;
-
+  // Persist text-only history (no thinking/tool blocks)
+  const userSummary = typeof userContent === "string" ? userContent : userContent.summary;
   history.push({ role: "user", content: userSummary });
   history.push({ role: "assistant", content: reply });
   saveConversation(fromPhone, history);

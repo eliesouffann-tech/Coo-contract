@@ -4,9 +4,13 @@ import ngrok from "@ngrok/ngrok";
 import axios from "axios";
 import { parseIncomingMessage, sendMessage, markAsRead } from "./whatsapp.js";
 import { chat } from "./claude.js";
-import { clearConversation, getProfile, saveProfile } from "./memory.js";
+import {
+  clearConversation, getProfile, saveProfile,
+  getAllNotesText, getTasksText, getContactName, saveContact,
+} from "./memory.js";
 import { initScheduler, getUpcoming } from "./scheduler.js";
 import { downloadWhatsAppMedia, buildMediaContent, summarizeMedia } from "./media.js";
+import { saveTokenFromCode, getAuthUrl, isCalendarReady } from "./calendar.js";
 
 const app = express();
 app.use(express.json());
@@ -27,7 +31,23 @@ app.get("/webhook", (req, res) => {
   }
 });
 
-// ─── Incoming messages ────────────────────────────────────────────────────────
+// ─── Google OAuth callback ────────────────────────────────────────────────────
+app.get("/oauth2callback", async (req, res) => {
+  try {
+    await saveTokenFromCode(req.query.code);
+    res.send(`
+      <html><body style="font-family:sans-serif;text-align:center;padding:50px">
+        <h2>✅ Google Calendar מחובר בהצלחה!</h2>
+        <p>אפשר לסגור חלון זה ולחזור לטרמינל.</p>
+      </body></html>
+    `);
+    console.log("✅ Google Calendar מחובר!");
+  } catch (err) {
+    res.status(500).send("שגיאה: " + err.message);
+  }
+});
+
+// ─── Incoming WhatsApp messages ───────────────────────────────────────────────
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
 
@@ -37,7 +57,11 @@ app.post("/webhook", async (req, res) => {
   const { from, messageId, type } = msg;
   await markAsRead(messageId);
 
-  // ── Special slash commands (text only) ──
+  const profile = getProfile();
+  const isOwner = profile.ownerPhone && from === profile.ownerPhone;
+  const senderName = getContactName(from) ?? from;
+
+  // ── Special commands (owner only, text) ──────────────────────────────────
   if (type === "text") {
     const text = msg.text.trim();
 
@@ -53,40 +77,51 @@ app.post("/webhook", async (req, res) => {
     }
 
     if (text === "/notes") {
-      const { getAllNotesText } = await import("./memory.js");
-      await sendMessage(from, `📋 *זיכרון שמור:*\n\n${getAllNotesText()}`);
+      await sendMessage(from, `📋 *זיכרון:*\n\n${getAllNotesText()}`);
+      return;
+    }
+
+    if (text === "/tasks") {
+      await sendMessage(from, `✅ *משימות:*\n\n${getTasksText("all")}`);
       return;
     }
 
     if (text === "/reminders") {
       const list = getUpcoming(from);
-      if (list.length === 0) {
+      if (!list.length) {
         await sendMessage(from, "📭 אין תזכורות פעילות.");
       } else {
         const lines = list.map((r, i) =>
-          `${i + 1}. ${r.message}\n   ⏰ ${new Date(r.datetime).toLocaleString("he-IL", { timeZone: "Asia/Jerusalem" })}\n   ID: ${r.id.slice(0, 8)}...`
+          `${i + 1}. ${r.message}\n   ⏰ ${new Date(r.datetime).toLocaleString("he-IL", { timeZone: "Asia/Jerusalem" })}\n   🆔 ${r.id.slice(0, 8)}`
         );
         await sendMessage(from, `🔔 *תזכורות פעילות:*\n\n${lines.join("\n\n")}`);
       }
       return;
     }
 
+    if (text === "/calendar") {
+      if (!isCalendarReady()) {
+        await sendMessage(from, "📅 Google Calendar לא מחובר.\nהפעל מהטרמינל:\n`npm run auth-google`");
+      } else {
+        await sendMessage(from, "📅 שאל אותי על לוח הזמנים שלך — 'מה יש לי היום?' או 'קבע פגישה...'");
+      }
+      return;
+    }
+
     if (text.startsWith("/profile")) {
       const args = text.slice("/profile".length).trim();
+      const saved = saveProfile({ ...profile, ownerPhone: from });
       if (!args) {
-        // Set owner phone and start guided setup
-        const profile = getProfile();
-        saveProfile({ ...profile, ownerPhone: from });
         await sendMessage(
           from,
-          `👤 *הגדרת פרופיל*\n\nספר לי על עצמך — שם, תפקיד, ואיך אתה אוהב לכתוב.\n\nלדוגמה:\n_"שמי אלי לוי, יזם טכנולוגיה. אני כותב קצר ולעניין, בעברית, עם הרבה אמוג'י. לא אוהב פורמליות."_`
+          `👤 *הגדרת פרופיל*\n\nספר לי עליך — שם, תפקיד, ואיך אתה אוהב לכתוב.\n\n_לדוגמה: "שמי אלי לוי, יזם. כותב קצר ולעניין, עברית, הרבה אמוג'י."_`
         );
         return;
       }
     }
   }
 
-  // ── Build content for Claude ──
+  // ── Build Claude input ────────────────────────────────────────────────────
   let claudeInput;
 
   try {
@@ -99,25 +134,38 @@ app.post("/webhook", async (req, res) => {
       const summary = summarizeMedia(mimeType, msg.caption);
       claudeInput = { blocks, summary };
     } else if (type === "audio") {
-      await sendMessage(from, "⚠️ הודעות קוליות אינן נתמכות עדיין. שלח טקסט או מסמך.");
+      await sendMessage(from, "⚠️ הודעות קוליות לא נתמכות עדיין.");
       return;
     } else {
-      await sendMessage(from, "⚠️ סוג הודעה זה אינו נתמך.");
+      await sendMessage(from, "⚠️ סוג הודעה זה לא נתמך.");
       return;
     }
 
-    console.log(`📨 [${from}] ${typeof claudeInput === "string" ? claudeInput.slice(0, 60) : claudeInput.summary}`);
+    console.log(`📨 [${senderName}] ${typeof claudeInput === "string" ? claudeInput.slice(0, 80) : claudeInput.summary}`);
 
     const reply = await chat(from, claudeInput);
     await sendMessage(from, reply);
-    console.log(`📤 [${from}] ${reply.slice(0, 60)}`);
+    console.log(`📤 [${senderName}] ${reply.slice(0, 80)}`);
+
+    // ── Notify owner when agent replies on their behalf ──────────────────
+    if (!isOwner && profile.ownerPhone && profile.notifyOwner !== false) {
+      const msgText = typeof claudeInput === "string" ? claudeInput : claudeInput.summary;
+      const notification =
+        `👁 *הודעה נכנסת*\n` +
+        `*מ:* ${senderName}\n` +
+        `*הם:* ${msgText.slice(0, 200)}\n\n` +
+        `*עניתי בשמך:*\n${reply.slice(0, 300)}${reply.length > 300 ? "..." : ""}`;
+      await sendMessage(profile.ownerPhone, notification).catch(() => {});
+    }
   } catch (err) {
     console.error("❌", err?.message ?? err);
     await sendMessage(from, "⚠️ אירעה שגיאה. נסה שוב.");
   }
 });
 
-app.get("/health", (_req, res) => res.json({ status: "ok" }));
+app.get("/health", (_req, res) =>
+  res.json({ status: "ok", calendar: isCalendarReady(), port: PORT })
+);
 
 // ─── Startup ──────────────────────────────────────────────────────────────────
 async function start() {
@@ -129,7 +177,13 @@ async function start() {
   if (process.env.NGROK_AUTHTOKEN) {
     await startNgrok();
   } else {
-    console.log("\n⚠️  NGROK_AUTHTOKEN לא מוגדר. הפעל 'npm run setup' להגדרת ngrok.\n");
+    console.log("\n⚠️  NGROK_AUTHTOKEN לא מוגדר. הפעל 'npm run setup'.\n");
+  }
+
+  if (isCalendarReady()) {
+    console.log("📅 Google Calendar מחובר ✅");
+  } else if (process.env.GOOGLE_CLIENT_ID) {
+    console.log("📅 Google Calendar: הפעל 'npm run auth-google' לחיבור");
   }
 }
 
@@ -143,11 +197,8 @@ async function startNgrok() {
     console.log(`\n✅ כתובת ציבורית: ${publicUrl}`);
 
     const registered = await tryRegisterMeta(webhookUrl);
-    if (registered) {
-      console.log("\n🎉 הכל מוגן! שלח הודעה ב-WhatsApp לעיסוק עם הסוכן.");
-    } else {
-      printInstructions(webhookUrl);
-    }
+    if (!registered) printInstructions(webhookUrl);
+    else console.log("\n🎉 הכל מוכן! שלח הודעה ב-WhatsApp לעיסוק עם הסוכן.\n");
   } catch (err) {
     console.error("❌ ngrok:", err?.message ?? err);
   }
@@ -165,26 +216,20 @@ async function tryRegisterMeta(webhookUrl) {
       fields: ["messages"],
       access_token: `${appId}|${appSecret}`,
     });
-    console.log("✅ Webhook נרשם אוטומטית אצל Meta");
+    console.log("✅ Webhook נרשם אוטומטית");
     return true;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
 function printInstructions(webhookUrl) {
   console.log(`
 \x1b[33m\x1b[1m━━━ צעד אחרון — הגדרת Webhook ב-Meta ━━━\x1b[0m
 
-1. כנס ל: \x1b[36mhttps://developers.facebook.com/apps/\x1b[0m
-2. בחר את האפליקציה → \x1b[1mWhatsApp → Configuration\x1b[0m
-3. לחץ \x1b[1m"Edit"\x1b[0m ליד Webhook והכנס:
-   \x1b[1mCallback URL:\x1b[0m  \x1b[36m${webhookUrl}\x1b[0m
+1. \x1b[36mhttps://developers.facebook.com/apps/\x1b[0m
+2. האפליקציה שלך → \x1b[1mWhatsApp → Configuration\x1b[0m
+3. \x1b[1mCallback URL:\x1b[0m  \x1b[36m${webhookUrl}\x1b[0m
    \x1b[1mVerify Token:\x1b[0m  \x1b[36m${VERIFY_TOKEN}\x1b[0m
-4. לחץ \x1b[1m"Verify and Save"\x1b[0m
-5. לחץ \x1b[1mSubscribe\x1b[0m על \x1b[1mmessages\x1b[0m
-
-\x1b[1mזהו! הסוכן מוכן לקבל הודעות.\x1b[0m
+4. לחץ \x1b[1m"Verify and Save"\x1b[0m + Subscribe על \x1b[1mmessages\x1b[0m
 `);
 }
 
@@ -197,20 +242,21 @@ function validateEnv() {
   }
 }
 
-const HELP_TEXT = `🤖 *פקודות זמינות:*
+const HELP_TEXT = `🤖 *פקודות:*
 
-/profile — הגדר את הפרופיל שלך (שם, תפקיד, סגנון כתיבה)
-/notes — הצג את כל המידע השמור
-/reminders — הצג תזכורות פעילות
-/reset — נקה את היסטוריית השיחה
-/help — הצג הודעה זו
+/profile — הגדר את הפרופיל שלך
+/notes — הצג זיכרון שמור
+/tasks — הצג משימות
+/reminders — הצג תזכורות
+/calendar — סטטוס Google Calendar
+/reset — נקה שיחה
+/help — עזרה
 
-💡 *מה הסוכן יכול לעשות:*
-• לענות על שאלות ולעזור בכל משימה
-• לנתח מסמכים ותמונות שתשלח
-• לקבוע תזכורות ("תזכיר לי מחר ב-9 לצלצל לרון")
-• לזכור מידע ("תזכור שמספר הרכב שלי הוא 12-345-67")
-• לכתוב הודעות, מיילים, סיכומים
-• לענות בשמך לאנשים אחרים`;
+💬 *דוגמאות לשימוש:*
+• "תזכיר לי מחר ב-9 לצלצל לדוד"
+• "תוסיף לי משימה: לשלוח הצעת מחיר עד יום שישי"
+• "תקבע פגישה עם רון ביום שלישי ב-14:00"
+• "תזכור שהסיסמה של הנהלת חשבונות היא..."
+• שלח תמונה/PDF — אנתח אותו לבד`;
 
 start();
