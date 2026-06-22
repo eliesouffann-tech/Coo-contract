@@ -5,7 +5,7 @@
   "main": "src/index.js",
   "type": "module",
   "scripts": {
-    "setup": "node scripts/setup.js",
+    "setup": "node scripts/setup-web.js",
     "auth-google": "node scripts/auth-google.js",
     "start": "node src/index.js",
     "dev": "node --watch src/index.js"
