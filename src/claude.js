@@ -1,36 +1,109 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { getHistory, addMessage } from "./conversations.js";
+import { getConversation, saveConversation, getProfile, getAllNotesText } from "./memory.js";
+import { TOOLS, executeTool } from "./tools.js";
 
-const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
+const client = new Anthropic();
 
-const SYSTEM_PROMPT = `אתה סוכן AI אישי המשרת את המשתמש דרך WhatsApp.
-אתה עוזר בכל משימה: כתיבה, מחקר, תכנון, חישובים, עצות, תרגומים, ועוד.
-ענה בשפה שבה המשתמש כותב אליך.
-היה תמציתי וברור — הודעות WhatsApp צריכות להיות קצרות וקריאות.
-אם צריך תשובה ארוכה, חלק אותה לסעיפים קצרים עם אמוג'י לנוחות קריאה.`;
+function buildSystemPrompt(fromPhone) {
+  const profile = getProfile();
+  const notes = getAllNotesText();
+  const now = new Date().toLocaleString("he-IL", { timeZone: "Asia/Jerusalem" });
+  const isOwner = profile.ownerPhone && fromPhone === profile.ownerPhone;
 
-export async function chat(userId, userMessage) {
-  addMessage(userId, "user", userMessage);
+  let identity;
 
-  const history = getHistory(userId);
+  if (profile.name) {
+    if (isOwner) {
+      identity = `אתה הסוכן האישי של ${profile.name}${profile.role ? ` (${profile.role})` : ""}.
+כרגע ${profile.name} בעצמו מדבר איתך. עזור לו בכל מה שהוא צריך.
+יכולותיך: לנתח מסמכים ותמונות, לקבוע תזכורות, לשמור מידע חשוב, לכתוב טקסטים, לחקור נושאים.`;
+    } else {
+      identity = `אתה ${profile.name}${profile.role ? `, ${profile.role}` : ""}.
+מישהו שלח הודעה ל-${profile.name}. ענה בשמו — כאילו אתה הוא.
+${profile.style ? `סגנון הכתיבה שלו: ${profile.style}` : ""}
+אל תזכיר שאתה AI. ענה בטבעיות כאילו אתה ${profile.name} עצמו.`;
+    }
+  } else {
+    identity = `אתה סוכן AI אישי.
+💡 כדי שהסוכן יוכל לענות בשמך, שלח: /profile`;
+  }
 
-  const stream = client.messages.stream({
-    model: "claude-opus-4-8",
-    max_tokens: 4096,
-    thinking: { type: "adaptive" },
-    system: SYSTEM_PROMPT,
-    messages: history,
-  });
+  return `${identity}
 
-  const finalMessage = await stream.finalMessage();
+📋 מידע שמור בזיכרון:
+${notes}
 
-  // Extract text from response (skip thinking blocks)
-  const replyText = finalMessage.content
-    .filter((block) => block.type === "text")
-    .map((block) => block.text)
-    .join("");
+🕐 עכשיו: ${now}
 
-  addMessage(userId, "assistant", replyText);
+הנחיות:
+- ענה בשפה שהמשתמש כותב בה
+- השתמש בכלים (תזכורות, זיכרון) באופן יזום — אם מישהו אומר "תזכיר לי", השתמש ב-set_reminder מיד
+- אם מישהו אומר "תזכור ש...", השתמש ב-save_to_memory מיד
+- הודעות WhatsApp — קצר ולעניין. סעיפים קצרים עם אמוג'י לנוחות קריאה`;
+}
 
-  return replyText;
+export async function chat(fromPhone, userContent) {
+  const history = getConversation(fromPhone);
+
+  // Build content for Claude (string or multimodal array)
+  const contentForClaude = typeof userContent === "string"
+    ? userContent
+    : userContent.blocks; // { blocks: [...], summary: "..." }
+
+  // Working messages for this turn (includes full thinking/tool blocks)
+  const working = [
+    ...history,
+    { role: "user", content: contentForClaude },
+  ];
+
+  let reply = "";
+
+  // Agentic loop
+  while (true) {
+    const response = await client.messages.create({
+      model: "claude-opus-4-8",
+      max_tokens: 4096,
+      thinking: { type: "adaptive" },
+      system: buildSystemPrompt(fromPhone),
+      tools: TOOLS,
+      messages: working,
+    });
+
+    // Add full response (including thinking blocks) to working for the loop
+    working.push({ role: "assistant", content: response.content });
+
+    if (response.stop_reason === "tool_use") {
+      const results = [];
+      for (const block of response.content) {
+        if (block.type === "tool_use") {
+          console.log(`🔧 ${block.name}`, JSON.stringify(block.input).slice(0, 100));
+          const result = await executeTool(block.name, block.input);
+          results.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: JSON.stringify(result),
+          });
+        }
+      }
+      working.push({ role: "user", content: results });
+      continue;
+    }
+
+    reply = response.content
+      .filter((b) => b.type === "text")
+      .map((b) => b.text)
+      .join("");
+    break;
+  }
+
+  // Persist only text (no thinking/tool blocks — keeps history compact)
+  const userSummary = typeof userContent === "string"
+    ? userContent
+    : userContent.summary;
+
+  history.push({ role: "user", content: userSummary });
+  history.push({ role: "assistant", content: reply });
+  saveConversation(fromPhone, history);
+
+  return reply;
 }

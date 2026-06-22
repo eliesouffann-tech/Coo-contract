@@ -2,82 +2,89 @@ import axios from "axios";
 
 const BASE_URL = "https://graph.facebook.com/v19.0";
 
+// Parse any incoming WhatsApp message into a unified format
 export function parseIncomingMessage(body) {
   try {
-    const entry = body.entry?.[0];
-    const change = entry?.changes?.[0];
-    const value = change?.value;
-    const message = value?.messages?.[0];
-
+    const message = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
     if (!message) return null;
 
-    // Only handle text messages for now
-    if (message.type !== "text") return null;
+    const base = { from: message.from, messageId: message.id, type: message.type };
 
-    return {
-      from: message.from,       // sender's phone number (e.g. "972501234567")
-      messageId: message.id,
-      text: message.text.body,
-    };
+    switch (message.type) {
+      case "text":
+        return { ...base, text: message.text.body };
+
+      case "image":
+        return {
+          ...base,
+          mediaId: message.image.id,
+          mimeType: "image/jpeg",
+          caption: message.image.caption || "",
+        };
+
+      case "document":
+        return {
+          ...base,
+          mediaId: message.document.id,
+          mimeType: message.document.mime_type,
+          caption: message.document.caption || message.document.filename || "",
+        };
+
+      case "audio":
+        return { ...base, mediaId: message.audio.id, mimeType: "audio/ogg" };
+
+      case "video":
+        return {
+          ...base,
+          mediaId: message.video.id,
+          mimeType: "video/mp4",
+          caption: message.video.caption || "",
+        };
+
+      default:
+        return null;
+    }
   } catch {
     return null;
   }
 }
 
+// Send one or more messages (auto-splits long text)
 export async function sendMessage(to, text) {
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const token = process.env.WHATSAPP_TOKEN;
-
-  // WhatsApp has a 4096-char limit per message — split if needed
-  const chunks = splitMessage(text);
-
-  for (const chunk of chunks) {
-    await axios.post(
-      `${BASE_URL}/${phoneNumberId}/messages`,
-      {
-        messaging_product: "whatsapp",
-        to,
-        type: "text",
-        text: { body: chunk },
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
+  for (const chunk of splitMessage(text)) {
+    await _post(to, { type: "text", text: { body: chunk } });
   }
 }
 
 export async function markAsRead(messageId) {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const token = process.env.WHATSAPP_TOKEN;
-
-  await axios.post(
-    `${BASE_URL}/${phoneNumberId}/messages`,
-    {
-      messaging_product: "whatsapp",
-      status: "read",
-      message_id: messageId,
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-    }
-  ).catch(() => {}); // non-critical, don't fail the request
+  await axios
+    .post(
+      `${BASE_URL}/${phoneNumberId}/messages`,
+      { messaging_product: "whatsapp", status: "read", message_id: messageId },
+      { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
+    )
+    .catch(() => {}); // non-critical
 }
 
-function splitMessage(text, maxLen = 4000) {
-  if (text.length <= maxLen) return [text];
+async function _post(to, payload) {
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const token = process.env.WHATSAPP_TOKEN;
+  await axios.post(
+    `${BASE_URL}/${phoneNumberId}/messages`,
+    { messaging_product: "whatsapp", to, ...payload },
+    { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
+  );
+}
 
+function splitMessage(text, max = 4000) {
+  if (text.length <= max) return [text];
   const chunks = [];
   let remaining = text;
   while (remaining.length > 0) {
-    let cut = remaining.lastIndexOf("\n", maxLen);
-    if (cut <= 0) cut = maxLen;
+    let cut = remaining.lastIndexOf("\n", max);
+    if (cut <= 0) cut = max;
     chunks.push(remaining.slice(0, cut).trim());
     remaining = remaining.slice(cut).trim();
   }
