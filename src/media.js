@@ -1,4 +1,39 @@
 import axios from "axios";
+import OpenAI, { toFile } from "openai";
+
+let _openai;
+function getOpenAI() {
+  if (!process.env.OPENAI_API_KEY) return null;
+  if (!_openai) _openai = new OpenAI();
+  return _openai;
+}
+
+export function isTranscriptionReady() {
+  return !!process.env.OPENAI_API_KEY;
+}
+
+export async function transcribeAudio(buffer, mimeType) {
+  const client = getOpenAI();
+  if (!client) throw new Error("OPENAI_API_KEY לא מוגדר");
+
+  // Determine file extension from mime type
+  const ext = mimeType.includes("ogg") ? "ogg"
+    : mimeType.includes("mp4") || mimeType.includes("m4a") ? "m4a"
+    : mimeType.includes("mpeg") || mimeType.includes("mp3") ? "mp3"
+    : mimeType.includes("wav") ? "wav"
+    : mimeType.includes("webm") ? "webm"
+    : "ogg";
+
+  const file = await toFile(buffer, `voice.${ext}`, { type: mimeType });
+
+  const result = await client.audio.transcriptions.create({
+    file,
+    model: "whisper-1",
+    response_format: "text",
+  });
+
+  return result.trim();
+}
 
 export async function downloadWhatsAppMedia(mediaId) {
   const token = process.env.WHATSAPP_TOKEN;

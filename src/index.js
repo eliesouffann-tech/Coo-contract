@@ -9,7 +9,7 @@ import {
   getAllNotesText, getTasksText, getContactName, saveContact,
 } from "./memory.js";
 import { initScheduler, getUpcoming } from "./scheduler.js";
-import { downloadWhatsAppMedia, buildMediaContent, summarizeMedia } from "./media.js";
+import { downloadWhatsAppMedia, buildMediaContent, summarizeMedia, transcribeAudio, isTranscriptionReady } from "./media.js";
 import { saveTokenFromCode, getAuthUrl, isCalendarReady } from "./calendar.js";
 
 const app = express();
@@ -134,8 +134,15 @@ app.post("/webhook", async (req, res) => {
       const summary = summarizeMedia(mimeType, msg.caption);
       claudeInput = { blocks, summary };
     } else if (type === "audio") {
-      await sendMessage(from, "⚠️ הודעות קוליות לא נתמכות עדיין.");
-      return;
+      if (!isTranscriptionReady()) {
+        await sendMessage(from, "⚠️ להפעלת הודעות קוליות הוסף OPENAI_API_KEY ל-.env");
+        return;
+      }
+      await sendMessage(from, "🎙 מתמלל...");
+      const { buffer, mimeType } = await downloadWhatsAppMedia(msg.mediaId);
+      const transcript = await transcribeAudio(buffer, mimeType);
+      console.log(`🎙 [${senderName}] תמלול: ${transcript}`);
+      claudeInput = `[הודעה קולית]\n${transcript}`;
     } else {
       await sendMessage(from, "⚠️ סוג הודעה זה לא נתמך.");
       return;
@@ -257,6 +264,7 @@ const HELP_TEXT = `🤖 *פקודות:*
 • "תוסיף לי משימה: לשלוח הצעת מחיר עד יום שישי"
 • "תקבע פגישה עם רון ביום שלישי ב-14:00"
 • "תזכור שהסיסמה של הנהלת חשבונות היא..."
-• שלח תמונה/PDF — אנתח אותו לבד`;
+• שלח תמונה/PDF — אנתח אותו לבד
+• שלח הודעה קולית — אתמלל ואענה`;
 
 start();

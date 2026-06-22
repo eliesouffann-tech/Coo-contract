@@ -90,6 +90,17 @@ while (!ngrokToken) {
   if (!ngrokToken) console.log(`${YELLOW}לא יכול להיות ריק.${RESET}`);
 }
 
+// ─── Step 5: OpenAI (optional, for voice messages) ───────────────────────────
+console.log(`
+${BOLD}שלב 5/5 — OpenAI API Key (אופציונלי — להודעות קוליות)${RESET}
+ללא מפתח זה הסוכן יעבוד מצוין, רק לא יתמלל הודעות קוליות.
+אם רוצה:
+1. כנס ל: ${CYAN}https://platform.openai.com/api-keys${RESET}
+2. לחץ "Create new secret key"
+3. העתק את המפתח (מתחיל ב-sk-...)
+`);
+const openaiKey = (await ask("הדבק מפתח OpenAI (Enter לדלג): ")).trim();
+
 rl.close();
 
 // Generate a random verify token
@@ -108,6 +119,7 @@ VERIFY_TOKEN=${verifyToken}
 
 # ngrok
 NGROK_AUTHTOKEN=${ngrokToken}
+${openaiKey ? `\n# OpenAI Whisper (תמלול הודעות קוליות)\nOPENAI_API_KEY=${openaiKey}` : "# OpenAI Whisper (אופציונלי — להודעות קוליות)\n# OPENAI_API_KEY=your_openai_api_key_here"}
 
 # Server
 PORT=3000
