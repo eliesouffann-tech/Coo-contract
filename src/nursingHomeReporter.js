@@ -4,6 +4,7 @@ import { performDeltaScan, processUnprocessedDocuments, getScanStatus } from "./
 import { getMaintenanceStats, getBudgetSummary, getProjects, getSafetyStats, getReportHistory } from "./database.js";
 import { readFileSync } from "fs";
 import { sendEmail, isEmailReady } from "./email.js";
+import { sendDailyReport } from "./dailyReport.js";
 
 const REPORT_TYPES = ["Q1", "Q2", "Q3", "Q4", "H1", "H2", "annual"];
 
@@ -18,7 +19,22 @@ const QUARTER_END_CRONS = {
 // ─── Schedule all automatic report generation ─────────────────────────────────
 
 export function scheduleReports(sendMessageFn = null) {
-  // Daily delta sync — every day at 6:00 AM
+  // ── Daily report — every day at 7:00 AM ─────────────────────────────────────
+  const dailyTime = process.env.DAILY_REPORT_TIME ?? "7:00";
+  const [dailyHour, dailyMin] = dailyTime.split(":").map(Number);
+  const dailyCron = `${dailyMin ?? 0} ${dailyHour ?? 7} * * *`;
+
+  cron.schedule(dailyCron, async () => {
+    console.log("📊 שולח דוח יומי...");
+    const ownerPhone = process.env.OWNER_PHONE;
+    try {
+      await sendDailyReport(sendMessageFn, ownerPhone);
+    } catch (err) {
+      console.error("❌ שגיאת דוח יומי:", err.message);
+    }
+  }, { timezone: "Asia/Jerusalem" });
+
+  // ── OneDrive delta sync — every day at 6:00 AM (before daily report) ────────
   cron.schedule("0 6 * * *", async () => {
     console.log("🔄 סריקת שינויים יומית...");
     try {
@@ -29,8 +45,8 @@ export function scheduleReports(sendMessageFn = null) {
     }
   }, { timezone: "Asia/Jerusalem" });
 
-  // Weekly full processing — every Sunday at 7:00 AM
-  cron.schedule("0 7 * * 0", async () => {
+  // ── Weekly full processing — every Sunday at 5:00 AM ────────────────────────
+  cron.schedule("0 5 * * 0", async () => {
     console.log("📋 עיבוד שבועי...");
     try {
       await processUnprocessedDocuments(100);

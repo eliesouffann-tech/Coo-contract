@@ -16,6 +16,7 @@ import { createReport, getDashboardText, scheduleReports, REPORT_TYPES } from ".
 import { performFullScan, processUnprocessedDocuments, getScanStatus } from "./nursingHomeScanner.js";
 import { isOneDriveReady } from "./onedrive.js";
 import { getMaintenanceStats, getBudgetSummary, getProjects, getSafetyStats, getReportHistory, insertMaintenanceRecord } from "./database.js";
+import { getDailySummaryText, buildDailySnapshot, buildWhatsAppDaily, buildEmailDailyHtml, sendDailyReport } from "./dailyReport.js";
 import { readFileSync, existsSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -84,6 +85,16 @@ app.post("/api/report", async (req, res) => {
     }
     const result = await createReport(period, year);
     res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Daily report API ─────────────────────────────────────────────────────────
+app.get("/api/daily", (_req, res) => {
+  try {
+    const snap = buildDailySnapshot();
+    res.json(snap);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -236,6 +247,16 @@ app.post("/webhook", async (req, res) => {
         `🔄 סריקה בתהליך: ${status.scanInProgress ? "כן" : "לא"}\n` +
         `🕐 סריקה אחרונה: ${status.lastFullScan ?? "לא בוצעה"}`
       );
+      return;
+    }
+
+    if (text === "/daily") {
+      try {
+        const snap = buildDailySnapshot();
+        await sendMessage(from, buildWhatsAppDaily(snap));
+      } catch (err) {
+        await sendMessage(from, `❌ שגיאה בדוח יומי: ${err.message}`);
+      }
       return;
     }
 
@@ -528,6 +549,7 @@ const HELP_TEXT = `🤖 *פקודות:*
 /report H1 [שנה] — דוח חציוני
 /report ANNUAL [שנה] — דוח שנתי
 /sendreport <סוג> [שנה] — שלח דוח במייל
+/daily — דוח יומי תפעולי
 
 📅 *כלי יום-יום:*
 /profile — הגדר פרופיל
