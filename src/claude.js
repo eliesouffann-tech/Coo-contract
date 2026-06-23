@@ -13,7 +13,7 @@ const groq = new OpenAI({
   baseURL: "https://api.groq.com/openai/v1",
 });
 
-const MODEL = "llama-3.3-70b-versatile";
+const MODEL = "llama-3.1-70b-versatile";
 
 const WEB_SEARCH_TOOL = {
   type: "function",
