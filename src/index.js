@@ -12,6 +12,10 @@ import { initScheduler, getUpcoming } from "./scheduler.js";
 import { downloadWhatsAppMedia, parsePdfText, summarizeMedia, transcribeAudio, isTranscriptionReady } from "./media.js";
 import { saveTokenFromCode, getAuthUrl, isCalendarReady, getUpcomingEventsText } from "./calendar.js";
 import { isEmailReady } from "./email.js";
+import { createReport, getDashboardText, scheduleReports, REPORT_TYPES } from "./nursingHomeReporter.js";
+import { performFullScan, processUnprocessedDocuments, getScanStatus } from "./nursingHomeScanner.js";
+import { isOneDriveReady } from "./onedrive.js";
+import { readFileSync, existsSync } from "fs";
 
 const app = express();
 app.use(express.json());
@@ -123,6 +127,98 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
+    // ── Nursing Home Report commands ─────────────────────────────────────────
+    if (text === "/dashboard") {
+      await sendMessage(from, getDashboardText());
+      return;
+    }
+
+    if (text === "/scan") {
+      await sendMessage(from, "🔍 מתחיל סריקת OneDrive...");
+      try {
+        const scanResult = await performFullScan();
+        const procResult = await processUnprocessedDocuments(20);
+        await sendMessage(from,
+          `✅ *סריקה הושלמה*\n\n` +
+          `📁 קבצים חדשים: ${scanResult.new ?? 0}\n` +
+          `📄 עובדו: ${procResult.processed ?? 0}\n` +
+          `❌ שגיאות: ${procResult.errors ?? 0}`
+        );
+      } catch (err) {
+        await sendMessage(from, `❌ שגיאת סריקה: ${err.message}`);
+      }
+      return;
+    }
+
+    if (text === "/scanstatus") {
+      const status = getScanStatus();
+      await sendMessage(from,
+        `📊 *סטטוס סריקה*\n\n` +
+        `🔗 OneDrive: ${status.oneDriveReady ? "✅ מחובר" : "❌ לא מחובר"}\n` +
+        `📄 ממתינים לעיבוד: ${status.unprocessed}\n` +
+        `🔄 סריקה בתהליך: ${status.scanInProgress ? "כן" : "לא"}\n` +
+        `🕐 סריקה אחרונה: ${status.lastFullScan ?? "לא בוצעה"}`
+      );
+      return;
+    }
+
+    if (text.startsWith("/report")) {
+      const args = text.slice("/report".length).trim().toUpperCase();
+      const [typeArg, yearArg] = args.split(/\s+/);
+      const reportType = typeArg || "";
+      const reportYear = yearArg ? parseInt(yearArg) : new Date().getFullYear();
+
+      if (!reportType || !REPORT_TYPES.includes(reportType)) {
+        await sendMessage(from,
+          `📊 *יצירת דוח*\n\n` +
+          `שימוש: /report <סוג> [שנה]\n\n` +
+          `סוגים:\n` +
+          `• /report Q1 — רבעון 1\n` +
+          `• /report Q2 — רבעון 2\n` +
+          `• /report Q3 — רבעון 3\n` +
+          `• /report Q4 — רבעון 4\n` +
+          `• /report H1 — חציון ראשון\n` +
+          `• /report H2 — חציון שני\n` +
+          `• /report ANNUAL — דוח שנתי\n\n` +
+          `דוגמה: /report Q2 2025`
+        );
+        return;
+      }
+
+      await sendMessage(from, `📊 מייצר דוח ${reportType} ${reportYear}... (עלול לקחת כמה דקות)`);
+      try {
+        const result = await createReport(reportType, reportYear);
+        await sendMessage(from,
+          `✅ *הדוח מוכן!*\n\n` +
+          `📋 ${result.periodLabel} ${result.year}\n` +
+          `📄 ${result.slideCount} שקופיות\n` +
+          `📁 ${result.fileName}\n\n` +
+          `הדוח נשמר בשרת. לשליחה במייל: /sendreport ${reportType} ${reportYear}`
+        );
+      } catch (err) {
+        await sendMessage(from, `❌ שגיאה ביצירת הדוח: ${err.message}`);
+      }
+      return;
+    }
+
+    if (text.startsWith("/sendreport")) {
+      const args = text.slice("/sendreport".length).trim().toUpperCase();
+      const [typeArg, yearArg] = args.split(/\s+/);
+      const reportEmail = process.env.REPORT_EMAIL;
+      if (!reportEmail) {
+        await sendMessage(from, "❌ REPORT_EMAIL לא מוגדר ב-.env");
+        return;
+      }
+      await sendMessage(from, `📧 שולח את הדוח ל-${reportEmail}...`);
+      try {
+        const result = await createReport(typeArg || "Q1", yearArg ? parseInt(yearArg) : new Date().getFullYear());
+        await sendMessage(from, `✅ הדוח נשלח ל-${reportEmail}`);
+      } catch (err) {
+        await sendMessage(from, `❌ שגיאה: ${err.message}`);
+      }
+      return;
+    }
+
     if (text === "/briefing") {
       const briefing = await buildMorningBriefing();
       if (briefing) {
@@ -215,6 +311,14 @@ app.get("/health", (_req, res) =>
 async function start() {
   validateEnv();
   initScheduler(sendMessage, buildMorningBriefing);
+  scheduleReports(sendMessage);
+
+  // Log OneDrive status
+  if (isOneDriveReady()) {
+    console.log("📁 OneDrive מחובר ✅");
+  } else {
+    console.log("📁 OneDrive לא מחובר — הפעל: npm run setup-onedrive");
+  }
 
   app.listen(PORT, () => console.log(`\n🚀 שרת רץ על פורט ${PORT}`));
 
@@ -336,23 +440,32 @@ function validateEnv() {
 
 const HELP_TEXT = `🤖 *פקודות:*
 
-/profile — הגדר פרופיל (שם, תפקיד, סגנון)
-/briefing — קבל סיכום יומי עכשיו
+📊 *דוחות ניהוליים:*
+/dashboard — Dashboard נוכחי (KPIs)
+/scan — סרוק OneDrive ועבד מסמכים חדשים
+/scanstatus — סטטוס הסריקה
+/report Q1 [שנה] — דוח רבעוני
+/report Q2 [שנה] — דוח רבעוני
+/report Q3 [שנה] — דוח רבעוני
+/report Q4 [שנה] — דוח רבעוני
+/report H1 [שנה] — דוח חציוני
+/report ANNUAL [שנה] — דוח שנתי
+/sendreport <סוג> [שנה] — שלח דוח במייל
+
+📅 *כלי יום-יום:*
+/profile — הגדר פרופיל
+/briefing — סיכום יומי
 /notes — זיכרון שמור
 /tasks — רשימת משימות
 /reminders — תזכורות פעילות
-/calendar — סטטוס Google Calendar
-/email — סטטוס שליחת מייל
-/reset — נקה היסטוריית שיחה
+/calendar — Google Calendar
+/email — סטטוס מייל
+/reset — אפס שיחה
 /help — עזרה זו
 
-💬 *דוגמאות:*
-• "מה מזג האוויר בתל אביב היום?" — חיפוש ברשת
-• "תזכיר לי מחר ב-9 לצלצל לדוד"
-• "תוסיף משימה: לשלוח הצעת מחיר"
-• "תקבע פגישה עם רון ביום שלישי ב-14:00"
-• "שלח מייל לרון@gmail.com — נושא: פגישה..."
-• שלח תמונה/PDF → אנתח
-• שלח הודעה קולית → מתמלל ועונה`;
+💬 *שלח קובץ:*
+• PDF, Word, Excel → אנתח ושמור
+• תמונה → זהה ושמור
+• הודעה קולית → תמלל`;
 
 start();
