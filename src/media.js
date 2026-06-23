@@ -1,5 +1,16 @@
 import axios from "axios";
 import OpenAI, { toFile } from "openai";
+import { createRequire } from "module";
+
+// Lazy-loaded to avoid crashing the server if pdf-parse has issues at startup
+let _pdfParse;
+function loadPdfParse() {
+  if (!_pdfParse) {
+    const require = createRequire(import.meta.url);
+    _pdfParse = require("pdf-parse/lib/pdf-parse.js");
+  }
+  return _pdfParse;
+}
 
 let _openai;
 function getOpenAI() {
@@ -52,6 +63,17 @@ export async function downloadWhatsAppMedia(mediaId) {
     buffer: Buffer.from(response.data),
     mimeType: info.mime_type ?? "application/octet-stream",
   };
+}
+
+export async function parsePdfText(buffer) {
+  const pdfParse = loadPdfParse();
+  const data = await pdfParse(buffer);
+  const text = data.text.trim();
+  // Truncate very long PDFs to avoid token limits
+  if (text.length > 12000) {
+    return text.slice(0, 12000) + "\n\n...[המסמך ארוך יותר, מוצגים 12,000 תווים ראשונים]";
+  }
+  return text;
 }
 
 // Build Gemini-compatible content parts for media

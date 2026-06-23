@@ -9,7 +9,7 @@ import {
   getAllNotesText, getTasksText, getContactName, saveContact,
 } from "./memory.js";
 import { initScheduler, getUpcoming } from "./scheduler.js";
-import { downloadWhatsAppMedia, buildMediaContent, summarizeMedia, transcribeAudio, isTranscriptionReady } from "./media.js";
+import { downloadWhatsAppMedia, parsePdfText, summarizeMedia, transcribeAudio, isTranscriptionReady } from "./media.js";
 import { saveTokenFromCode, getAuthUrl, isCalendarReady, getUpcomingEventsText } from "./calendar.js";
 import { isEmailReady } from "./email.js";
 
@@ -52,6 +52,7 @@ app.get("/oauth2callback", async (req, res) => {
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
 
+  try {
   const msg = parseIncomingMessage(req.body);
   if (!msg) return;
 
@@ -65,29 +66,35 @@ app.post("/webhook", async (req, res) => {
   // ── Special commands (owner only, text) ──────────────────────────────────
   if (type === "text") {
     const text = msg.text.trim();
+    const textLower = text.toLowerCase();
 
-    if (text === "/reset") {
+    if (textLower === "/ping") {
+      await sendMessage(from, "🏓 pong — הבוט פועל!");
+      return;
+    }
+
+    if (textLower === "/reset") {
       clearConversation(from);
       await sendMessage(from, "✅ השיחה אופסה.");
       return;
     }
 
-    if (text === "/help") {
+    if (textLower === "/help") {
       await sendMessage(from, HELP_TEXT);
       return;
     }
 
-    if (text === "/notes") {
+    if (textLower === "/notes") {
       await sendMessage(from, `📋 *זיכרון:*\n\n${getAllNotesText()}`);
       return;
     }
 
-    if (text === "/tasks") {
+    if (textLower === "/tasks") {
       await sendMessage(from, `✅ *משימות:*\n\n${getTasksText("all")}`);
       return;
     }
 
-    if (text === "/reminders") {
+    if (textLower === "/reminders") {
       const list = getUpcoming(from);
       if (!list.length) {
         await sendMessage(from, "📭 אין תזכורות פעילות.");
@@ -100,7 +107,7 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
-    if (text === "/calendar") {
+    if (textLower === "/calendar") {
       if (!isCalendarReady()) {
         await sendMessage(from, "📅 Google Calendar לא מחובר.\nהפעל מהטרמינל:\n`npm run auth-google`");
       } else {
@@ -109,7 +116,7 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
-    if (text === "/email") {
+    if (textLower === "/email") {
       if (!isEmailReady()) {
         await sendMessage(from,
           "📧 שליחת מיילים לא מוגדרת.\n\nהוסף ל-.env:\n" +
@@ -123,7 +130,7 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
-    if (text === "/briefing") {
+    if (textLower === "/briefing") {
       const briefing = await buildMorningBriefing();
       if (briefing) {
         await sendMessage(from, briefing.text);
@@ -133,7 +140,7 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
-    if (text.startsWith("/profile")) {
+    if (textLower.startsWith("/profile")) {
       const args = text.slice("/profile".length).trim();
       const saved = saveProfile({ ...profile, ownerPhone: from });
       if (!args) {
@@ -155,9 +162,21 @@ app.post("/webhook", async (req, res) => {
     } else if (type === "image" || type === "document") {
       await sendMessage(from, "⏳ קורא את הקובץ...");
       const { buffer, mimeType } = await downloadWhatsAppMedia(msg.mediaId);
-      const blocks = buildMediaContent(buffer, mimeType, msg.caption);
-      const summary = summarizeMedia(mimeType, msg.caption);
-      claudeInput = { blocks, summary };
+
+      if (mimeType === "application/pdf") {
+        const pdfText = await parsePdfText(buffer);
+        const caption = msg.caption ? `\n${msg.caption}` : "";
+        claudeInput = `[מסמך PDF${caption}]\n\n${pdfText}`;
+      } else if (mimeType.startsWith("image/")) {
+        claudeInput = {
+          imageBase64: buffer.toString("base64"),
+          mimeType,
+          caption: msg.caption ?? "",
+          summary: summarizeMedia(mimeType, msg.caption),
+        };
+      } else {
+        claudeInput = `[קובץ מסוג ${mimeType}${msg.caption ? `: ${msg.caption}` : ""}]`;
+      }
     } else if (type === "audio") {
       if (!isTranscriptionReady()) {
         await sendMessage(from, "⚠️ להפעלת הודעות קוליות הוסף OPENAI_API_KEY ל-.env");
@@ -191,7 +210,10 @@ app.post("/webhook", async (req, res) => {
     }
   } catch (err) {
     console.error("❌", err?.message ?? err);
-    await sendMessage(from, "⚠️ אירעה שגיאה. נסה שוב.");
+    try { await sendMessage(from, "⚠️ אירעה שגיאה. נסה שוב."); } catch { /* ignore */ }
+  }
+  } catch (err) {
+    console.error("❌ Unhandled webhook error:", err?.message ?? err);
   }
 });
 

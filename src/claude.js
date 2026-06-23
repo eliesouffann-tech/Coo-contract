@@ -14,6 +14,7 @@ const groq = new OpenAI({
 });
 
 const MODEL = "llama-3.3-70b-versatile";
+const VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 
 const WEB_SEARCH_TOOL = {
   type: "function",
@@ -105,7 +106,29 @@ export async function chat(fromPhone, userContent) {
   const systemPrompt = await buildSystemPrompt(fromPhone);
 
   const groqTools = [...TOOLS.map(toGroqTool), WEB_SEARCH_TOOL];
-  const userText = typeof userContent === "string" ? userContent : userContent.summary;
+
+  // Handle image input: describe with vision model first, then pass description to main model
+  let userText;
+  if (userContent?.imageBase64) {
+    try {
+      const visionContent = [
+        { type: "image_url", image_url: { url: `data:${userContent.mimeType};base64,${userContent.imageBase64}` } },
+        { type: "text", text: userContent.caption || "תאר ונתח את התמונה בפירוט, בעברית." },
+      ];
+      const visionResp = await groq.chat.completions.create({
+        model: VISION_MODEL,
+        messages: [{ role: "user", content: visionContent }],
+        max_tokens: 768,
+      });
+      const description = visionResp.choices[0].message.content ?? "";
+      userText = `[תמונה]\n${description}${userContent.caption ? `\n\nהמשתמש כתב: ${userContent.caption}` : ""}`;
+    } catch (err) {
+      console.error("⚠️ vision error:", err.message?.slice(0, 100));
+      userText = userContent.summary;
+    }
+  } else {
+    userText = typeof userContent === "string" ? userContent : userContent.summary;
+  }
 
   const messages = [
     { role: "system", content: systemPrompt },
@@ -113,13 +136,24 @@ export async function chat(fromPhone, userContent) {
     { role: "user", content: userText },
   ];
 
-  let response = await groq.chat.completions.create({
-    model: MODEL,
-    messages,
-    tools: groqTools,
-    tool_choice: "auto",
-    max_tokens: 1024,
-  });
+  async function callGroq(msgs, withTools = true) {
+    const params = { model: MODEL, messages: msgs, max_tokens: 600 };
+    if (withTools) {
+      params.tools = groqTools;
+      params.tool_choice = "auto";
+    }
+    try {
+      return await groq.chat.completions.create(params);
+    } catch (err) {
+      if (withTools && err.status === 400) {
+        console.warn("⚠️ Tool validation error, retrying without tools:", err.message?.slice(0, 120));
+        return callGroq(msgs, false);
+      }
+      throw err;
+    }
+  }
+
+  let response = await callGroq(messages);
 
   // Agentic tool-call loop
   while (response.choices[0].finish_reason === "tool_calls") {
@@ -144,13 +178,7 @@ export async function chat(fromPhone, userContent) {
       });
     }
 
-    response = await groq.chat.completions.create({
-      model: MODEL,
-      messages,
-      tools: groqTools,
-      tool_choice: "auto",
-      max_tokens: 1024,
-    });
+    response = await callGroq(messages);
   }
 
   const reply = response.choices[0].message.content ?? "";

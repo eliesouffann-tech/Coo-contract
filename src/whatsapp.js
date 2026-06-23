@@ -71,11 +71,22 @@ export async function markAsRead(messageId) {
 async function _post(to, payload) {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const token = process.env.WHATSAPP_TOKEN;
-  await axios.post(
-    `${BASE_URL}/${phoneNumberId}/messages`,
-    { messaging_product: "whatsapp", to, ...payload },
-    { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
-  );
+  try {
+    await axios.post(
+      `${BASE_URL}/${phoneNumberId}/messages`,
+      { messaging_product: "whatsapp", to, ...payload },
+      { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
+    );
+  } catch (err) {
+    const status = err.response?.status;
+    const msg = err.response?.data?.error?.message ?? err.message;
+    const short = status === 401 || status === 403
+      ? `WHATSAPP_TOKEN פג תוקף (${status}) — חדש ב-Railway Variables`
+      : `WhatsApp error ${status}: ${msg}`;
+    const e = new Error(short);
+    e.status = status;
+    throw e;
+  }
 }
 
 function splitMessage(text, max = 4000) {
