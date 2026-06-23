@@ -13,7 +13,7 @@ const groq = new OpenAI({
   baseURL: "https://api.groq.com/openai/v1",
 });
 
-const MODEL = "llama-3.3-70b-versatile";
+const MODEL = "llama-3.3-70b-specdec";
 const VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 
 const WEB_SEARCH_TOOL = {
@@ -137,7 +137,7 @@ export async function chat(fromPhone, userContent) {
   ];
 
   async function callGroq(msgs, withTools = true) {
-    const params = { model: MODEL, messages: msgs, max_tokens: 1024 };
+    const params = { model: MODEL, messages: msgs, max_tokens: 600 };
     if (withTools) {
       params.tools = groqTools;
       params.tool_choice = "auto";
