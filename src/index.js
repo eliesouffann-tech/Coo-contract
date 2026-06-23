@@ -226,6 +226,9 @@ async function start() {
   validateEnv();
   initScheduler(sendMessage, buildMorningBriefing);
 
+  const token = process.env.WHATSAPP_TOKEN ?? "";
+  console.log(`\n🔑 WHATSAPP_TOKEN: ${token.slice(0, 12)}...${token.slice(-6)} (אורך: ${token.length})`);
+
   app.listen(PORT, () => console.log(`\n🚀 שרת רץ על פורט ${PORT}`));
 
   // Detect deployment platform
