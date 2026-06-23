@@ -66,6 +66,11 @@ app.post("/webhook", async (req, res) => {
   if (type === "text") {
     const text = msg.text.trim();
 
+    if (text === "/ping") {
+      await sendMessage(from, "🏓 pong — הבוט פועל!");
+      return;
+    }
+
     if (text === "/reset") {
       clearConversation(from);
       await sendMessage(from, "✅ השיחה אופסה.");
