@@ -13,7 +13,7 @@ const groq = new OpenAI({
   baseURL: "https://api.groq.com/openai/v1",
 });
 
-const MODEL = "llama-3.1-70b-versatile";
+const MODEL = "llama-3.3-70b-versatile";
 
 const WEB_SEARCH_TOOL = {
   type: "function",
@@ -113,13 +113,24 @@ export async function chat(fromPhone, userContent) {
     { role: "user", content: userText },
   ];
 
-  let response = await groq.chat.completions.create({
-    model: MODEL,
-    messages,
-    tools: groqTools,
-    tool_choice: "auto",
-    max_tokens: 1024,
-  });
+  async function callGroq(msgs, withTools = true) {
+    const params = { model: MODEL, messages: msgs, max_tokens: 1024 };
+    if (withTools) {
+      params.tools = groqTools;
+      params.tool_choice = "auto";
+    }
+    try {
+      return await groq.chat.completions.create(params);
+    } catch (err) {
+      if (withTools && err.status === 400) {
+        console.warn("⚠️ Tool validation error, retrying without tools:", err.message?.slice(0, 120));
+        return callGroq(msgs, false);
+      }
+      throw err;
+    }
+  }
+
+  let response = await callGroq(messages);
 
   // Agentic tool-call loop
   while (response.choices[0].finish_reason === "tool_calls") {
@@ -144,13 +155,7 @@ export async function chat(fromPhone, userContent) {
       });
     }
 
-    response = await groq.chat.completions.create({
-      model: MODEL,
-      messages,
-      tools: groqTools,
-      tool_choice: "auto",
-      max_tokens: 1024,
-    });
+    response = await callGroq(messages);
   }
 
   const reply = response.choices[0].message.content ?? "";
