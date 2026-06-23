@@ -1,26 +1,45 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import OpenAI from "openai";
 import {
   getConversation, saveConversation,
   getProfile, getAllNotesText, getAllContactsText, getTasksText,
 } from "./memory.js";
-import { GEMINI_TOOLS, executeTool } from "./tools.js";
+import { TOOLS, executeTool } from "./tools.js";
 import { isCalendarReady, getUpcomingEventsText } from "./calendar.js";
 import { isEmailReady } from "./email.js";
 import { webSearch } from "./search.js";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const groq = new OpenAI({
+  apiKey: process.env.GROQ_API_KEY,
+  baseURL: "https://api.groq.com/openai/v1",
+});
+
+const MODEL = "llama-3.3-70b-versatile";
 
 const WEB_SEARCH_TOOL = {
-  name: "web_search",
-  description: "מחפש מידע עדכני ברשת. השתמש כשצריך נתונים עדכניים: מחירים, חדשות, מזג אוויר, כתובות.",
-  parameters: {
-    type: "OBJECT",
-    properties: {
-      query: { type: "STRING", description: "שאילתת חיפוש" },
+  type: "function",
+  function: {
+    name: "web_search",
+    description: "מחפש מידע עדכני ברשת. השתמש כשצריך נתונים עדכניים: מחירים, חדשות, מזג אוויר, כתובות.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "שאילתת חיפוש" },
+      },
+      required: ["query"],
     },
-    required: ["query"],
   },
 };
+
+function toGroqTool(tool) {
+  return {
+    type: "function",
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.input_schema,
+    },
+  };
+}
 
 async function buildSystemPrompt(fromPhone) {
   const profile = getProfile();
@@ -81,63 +100,62 @@ ${tasks}${emailStatus}
 - הודעות WhatsApp — קצר, ברור, אמוג'י לנוחות קריאה`;
 }
 
-function toGeminiHistory(history) {
-  return history.map((msg) => ({
-    role: msg.role === "assistant" ? "model" : "user",
-    parts: [{ text: msg.content }],
-  }));
-}
-
 export async function chat(fromPhone, userContent) {
   const history = getConversation(fromPhone);
   const systemPrompt = await buildSystemPrompt(fromPhone);
 
-  const model = genAI.getGenerativeModel({
-    model: "gemini-2.0-flash",
-    systemInstruction: systemPrompt,
-    tools: [{ functionDeclarations: [...GEMINI_TOOLS, WEB_SEARCH_TOOL] }],
+  const groqTools = [...TOOLS.map(toGroqTool), WEB_SEARCH_TOOL];
+  const userText = typeof userContent === "string" ? userContent : userContent.summary;
+
+  const messages = [
+    { role: "system", content: systemPrompt },
+    ...history.map((m) => ({ role: m.role, content: m.content })),
+    { role: "user", content: userText },
+  ];
+
+  let response = await groq.chat.completions.create({
+    model: MODEL,
+    messages,
+    tools: groqTools,
+    tool_choice: "auto",
+    max_tokens: 1024,
   });
 
-  const session = model.startChat({ history: toGeminiHistory(history) });
-
-  const userParts = typeof userContent === "string"
-    ? userContent
-    : userContent.blocks;
-
-  let response = await session.sendMessage(userParts);
-
   // Agentic tool-call loop
-  while (true) {
-    const calls = response.response.functionCalls?.() ?? [];
-    if (!calls.length) break;
+  while (response.choices[0].finish_reason === "tool_calls") {
+    const toolCalls = response.choices[0].message.tool_calls ?? [];
+    messages.push(response.choices[0].message);
 
-    const functionResponses = [];
-    for (const call of calls) {
-      console.log(`🔧 ${call.name}`, JSON.stringify(call.args).slice(0, 120));
+    for (const call of toolCalls) {
+      console.log(`🔧 ${call.function.name}`, call.function.arguments.slice(0, 120));
       let result;
       try {
-        result = call.name === "web_search"
-          ? await webSearch(call.args.query)
-          : await executeTool(call.name, call.args);
+        const args = JSON.parse(call.function.arguments);
+        result = call.function.name === "web_search"
+          ? await webSearch(args.query)
+          : await executeTool(call.function.name, args);
       } catch (err) {
         result = { error: err.message };
       }
-      functionResponses.push({
-        functionResponse: {
-          name: call.name,
-          response: { result: JSON.stringify(result) },
-        },
+      messages.push({
+        role: "tool",
+        tool_call_id: call.id,
+        content: JSON.stringify(result),
       });
     }
 
-    response = await session.sendMessage(functionResponses);
+    response = await groq.chat.completions.create({
+      model: MODEL,
+      messages,
+      tools: groqTools,
+      tool_choice: "auto",
+      max_tokens: 1024,
+    });
   }
 
-  const reply = response.response.text?.() ?? "";
+  const reply = response.choices[0].message.content ?? "";
 
-  // Persist text-only history
-  const userSummary = typeof userContent === "string" ? userContent : userContent.summary;
-  history.push({ role: "user", content: userSummary });
+  history.push({ role: "user", content: userText });
   history.push({ role: "assistant", content: reply });
   saveConversation(fromPhone, history);
 
