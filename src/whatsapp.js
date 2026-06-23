@@ -80,12 +80,12 @@ async function _post(to, payload) {
   } catch (err) {
     const status = err.response?.status;
     const msg = err.response?.data?.error?.message ?? err.message;
-    if (status === 401 || status === 403) {
-      console.error(`❌ WHATSAPP_TOKEN פג תוקף! חדש אותו ב-Railway Variables. (${msg})`);
-    } else {
-      console.error(`❌ WhatsApp send error ${status}: ${msg}`);
-    }
-    throw err;
+    const short = status === 401 || status === 403
+      ? `WHATSAPP_TOKEN פג תוקף (${status}) — חדש ב-Railway Variables`
+      : `WhatsApp error ${status}: ${msg}`;
+    const e = new Error(short);
+    e.status = status;
+    throw e;
   }
 }
 

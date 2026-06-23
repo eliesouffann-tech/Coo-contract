@@ -52,6 +52,7 @@ app.get("/oauth2callback", async (req, res) => {
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
 
+  try {
   const msg = parseIncomingMessage(req.body);
   if (!msg) return;
 
@@ -208,7 +209,10 @@ app.post("/webhook", async (req, res) => {
     }
   } catch (err) {
     console.error("❌", err?.message ?? err);
-    await sendMessage(from, "⚠️ אירעה שגיאה. נסה שוב.");
+    try { await sendMessage(from, "⚠️ אירעה שגיאה. נסה שוב."); } catch { /* ignore */ }
+  }
+  } catch (err) {
+    console.error("❌ Unhandled webhook error:", err?.message ?? err);
   }
 });
 
