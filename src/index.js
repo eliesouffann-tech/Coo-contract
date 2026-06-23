@@ -66,34 +66,35 @@ app.post("/webhook", async (req, res) => {
   // ── Special commands (owner only, text) ──────────────────────────────────
   if (type === "text") {
     const text = msg.text.trim();
+    const textLower = text.toLowerCase();
 
-    if (text === "/ping") {
+    if (textLower === "/ping") {
       await sendMessage(from, "🏓 pong — הבוט פועל!");
       return;
     }
 
-    if (text === "/reset") {
+    if (textLower === "/reset") {
       clearConversation(from);
       await sendMessage(from, "✅ השיחה אופסה.");
       return;
     }
 
-    if (text === "/help") {
+    if (textLower === "/help") {
       await sendMessage(from, HELP_TEXT);
       return;
     }
 
-    if (text === "/notes") {
+    if (textLower === "/notes") {
       await sendMessage(from, `📋 *זיכרון:*\n\n${getAllNotesText()}`);
       return;
     }
 
-    if (text === "/tasks") {
+    if (textLower === "/tasks") {
       await sendMessage(from, `✅ *משימות:*\n\n${getTasksText("all")}`);
       return;
     }
 
-    if (text === "/reminders") {
+    if (textLower === "/reminders") {
       const list = getUpcoming(from);
       if (!list.length) {
         await sendMessage(from, "📭 אין תזכורות פעילות.");
@@ -106,7 +107,7 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
-    if (text === "/calendar") {
+    if (textLower === "/calendar") {
       if (!isCalendarReady()) {
         await sendMessage(from, "📅 Google Calendar לא מחובר.\nהפעל מהטרמינל:\n`npm run auth-google`");
       } else {
@@ -115,7 +116,7 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
-    if (text === "/email") {
+    if (textLower === "/email") {
       if (!isEmailReady()) {
         await sendMessage(from,
           "📧 שליחת מיילים לא מוגדרת.\n\nהוסף ל-.env:\n" +
@@ -129,7 +130,7 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
-    if (text === "/briefing") {
+    if (textLower === "/briefing") {
       const briefing = await buildMorningBriefing();
       if (briefing) {
         await sendMessage(from, briefing.text);
@@ -139,7 +140,7 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
-    if (text.startsWith("/profile")) {
+    if (textLower.startsWith("/profile")) {
       const args = text.slice("/profile".length).trim();
       const saved = saveProfile({ ...profile, ownerPhone: from });
       if (!args) {
