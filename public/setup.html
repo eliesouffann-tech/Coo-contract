@@ -5,546 +5,339 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>WhatsApp AI Agent — הגדרה</title>
 <style>
-  :root {
-    --green: #25D366;
-    --dark: #111b21;
-    --card: #1e2a30;
-    --border: #2a3942;
-    --text: #e9edef;
-    --muted: #8696a0;
-    --blue: #53bdeb;
-    --red: #f15c6d;
-    --radius: 12px;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: var(--dark);
-    color: var(--text);
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-  }
-  .container { width: 100%; max-width: 600px; }
-
-  /* Header */
-  .header { text-align: center; margin-bottom: 32px; }
-  .header .logo { font-size: 48px; margin-bottom: 8px; }
-  .header h1 { font-size: 24px; font-weight: 700; color: var(--green); }
-  .header p { color: var(--muted); margin-top: 6px; font-size: 14px; }
-
-  /* Progress */
-  .progress { display: flex; gap: 8px; margin-bottom: 28px; }
-  .progress-step {
-    flex: 1; height: 4px; border-radius: 2px;
-    background: var(--border); transition: background .3s;
-  }
-  .progress-step.done { background: var(--green); }
-  .progress-step.active { background: var(--blue); }
-
-  /* Screen */
-  .screen { display: none; }
-  .screen.active { display: block; }
-
-  /* Card */
-  .card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 28px;
-    margin-bottom: 16px;
-  }
-  .card-title {
-    font-size: 18px; font-weight: 600; margin-bottom: 6px;
-    display: flex; align-items: center; gap: 10px;
-  }
-  .card-title .icon { font-size: 22px; }
-  .card-desc { color: var(--muted); font-size: 13px; line-height: 1.6; margin-bottom: 20px; }
-
-  /* Steps inside card */
-  .steps { background: var(--dark); border-radius: 8px; padding: 16px; margin-bottom: 20px; }
-  .steps ol { padding-right: 20px; }
-  .steps li { font-size: 13px; color: var(--muted); margin-bottom: 8px; line-height: 1.5; }
-  .steps li:last-child { margin-bottom: 0; }
-  .steps a { color: var(--blue); text-decoration: none; }
-  .steps a:hover { text-decoration: underline; }
-  .steps code { background: var(--border); padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 12px; }
-
-  /* Input group */
-  .input-group { margin-bottom: 16px; }
-  .input-group label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
-  .input-row { display: flex; gap: 8px; }
-  .input-row input { flex: 1; }
-  input, textarea {
-    width: 100%;
-    background: var(--dark);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 14px;
-    color: var(--text);
-    font-size: 14px;
-    font-family: inherit;
-    direction: ltr;
-    text-align: left;
-    transition: border-color .2s;
-  }
-  input:focus, textarea:focus {
-    outline: none; border-color: var(--green);
-  }
-  input.valid { border-color: var(--green); }
-  input.invalid { border-color: var(--red); }
-
-  /* Buttons */
-  .btn {
-    padding: 12px 24px;
-    border-radius: 8px;
-    border: none;
-    font-size: 15px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: opacity .2s, transform .1s;
-    display: inline-flex; align-items: center; gap: 8px;
-  }
-  .btn:active { transform: scale(.98); }
-  .btn:disabled { opacity: .4; cursor: not-allowed; }
-  .btn-primary { background: var(--green); color: #fff; width: 100%; justify-content: center; }
-  .btn-secondary { background: var(--border); color: var(--text); }
-  .btn-small { padding: 8px 14px; font-size: 13px; border-radius: 6px; background: var(--border); color: var(--text); }
-  .btn-row { display: flex; gap: 10px; margin-top: 8px; }
-  .btn-row .btn-primary { flex: 1; }
-
-  /* Status */
-  .status {
-    font-size: 13px; padding: 10px 14px;
-    border-radius: 8px; margin-top: 10px;
-    display: none;
-  }
-  .status.show { display: flex; align-items: center; gap: 8px; }
-  .status.ok { background: rgba(37,211,102,.15); color: var(--green); }
-  .status.err { background: rgba(241,92,109,.15); color: var(--red); }
-  .status.info { background: rgba(83,189,235,.15); color: var(--blue); }
-
-  /* Log */
-  .log {
-    background: var(--dark); border-radius: 8px;
-    padding: 16px; font-family: monospace; font-size: 13px;
-    max-height: 200px; overflow-y: auto; margin-top: 16px;
-  }
-  .log-line { padding: 3px 0; color: var(--muted); }
-  .log-line.ok { color: var(--green); }
-  .log-line.err { color: var(--red); }
-  .log-line.info { color: var(--blue); }
-
-  /* Webhook box */
-  .webhook-box {
-    background: var(--dark); border-radius: 8px;
-    padding: 16px; margin-top: 16px;
-  }
-  .webhook-row { margin-bottom: 12px; }
-  .webhook-row label { font-size: 12px; color: var(--muted); margin-bottom: 4px; display: block; }
-  .copy-row { display: flex; gap: 8px; }
-  .copy-row input { font-family: monospace; font-size: 12px; background: var(--border); }
-  .copy-btn { padding: 8px 12px; background: var(--border); border: none; border-radius: 6px; color: var(--text); cursor: pointer; font-size: 12px; white-space: nowrap; }
-  .copy-btn:hover { background: var(--green); color: #fff; }
-
-  /* Optional badge */
-  .optional {
-    font-size: 11px; padding: 2px 8px; border-radius: 20px;
-    background: var(--border); color: var(--muted);
-    margin-right: 8px;
-  }
-
-  /* Success screen */
-  .success-icon { font-size: 72px; text-align: center; margin: 20px 0; }
-  .success-title { font-size: 26px; font-weight: 700; text-align: center; color: var(--green); margin-bottom: 10px; }
-  .success-desc { text-align: center; color: var(--muted); font-size: 14px; line-height: 1.6; }
-
-  /* Spinner */
-  .spinner {
-    width: 18px; height: 18px;
-    border: 2px solid rgba(255,255,255,.3);
-    border-top-color: #fff;
-    border-radius: 50%;
-    animation: spin .6s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  .skip-link { text-align: center; margin-top: 16px; }
-  .skip-link a { color: var(--muted); font-size: 13px; text-decoration: none; cursor: pointer; }
-  .skip-link a:hover { color: var(--text); }
+:root{--g:#25D366;--dark:#111b21;--card:#1e2a30;--brd:#2a3942;--txt:#e9edef;--mut:#8696a0;--blue:#53bdeb;--red:#f15c6d;--r:12px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--dark);color:var(--txt);min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:24px 16px}
+.wrap{width:100%;max-width:620px}
+h1{color:var(--g);font-size:22px;text-align:center;margin-bottom:4px}
+.sub{color:var(--mut);font-size:13px;text-align:center;margin-bottom:24px}
+/* Progress */
+.prog{display:flex;gap:6px;margin-bottom:24px}
+.ps{flex:1;height:4px;border-radius:2px;background:var(--brd);transition:background .3s}
+.ps.done{background:var(--g)}.ps.act{background:var(--blue)}
+/* Screen */
+.sc{display:none}.sc.on{display:block}
+/* Card */
+.card{background:var(--card);border:1px solid var(--brd);border-radius:var(--r);padding:24px;margin-bottom:14px}
+.ct{font-size:17px;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:9px}
+.cd{color:var(--mut);font-size:13px;line-height:1.6;margin-bottom:18px}
+/* Steps */
+.steps{background:var(--dark);border-radius:8px;padding:14px 14px 14px 20px;margin-bottom:18px}
+.steps li{font-size:13px;color:var(--mut);margin-bottom:8px;line-height:1.55}
+.steps li:last-child{margin-bottom:0}
+.steps a{color:var(--blue);text-decoration:none}
+.steps a:hover{text-decoration:underline}
+.steps kbd{background:var(--brd);padding:2px 7px;border-radius:4px;font-family:monospace;font-size:12px;color:var(--txt)}
+/* Input */
+.ig{margin-bottom:14px}
+.ig label{display:block;font-size:12px;color:var(--mut);margin-bottom:5px}
+.irow{display:flex;gap:7px}
+.irow input{flex:1}
+input{width:100%;background:var(--dark);border:1px solid var(--brd);border-radius:8px;padding:10px 13px;color:var(--txt);font-size:13px;font-family:inherit;direction:ltr;transition:border-color .2s}
+input:focus{outline:none;border-color:var(--g)}
+input.ok{border-color:var(--g)}input.bad{border-color:var(--red)}
+/* Buttons */
+.btn{padding:11px 22px;border-radius:8px;border:none;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .15s,transform .1s;display:inline-flex;align-items:center;gap:7px}
+.btn:active{transform:scale(.98)}.btn:disabled{opacity:.35;cursor:not-allowed}
+.bp{background:var(--g);color:#fff;width:100%;justify-content:center}
+.bs{background:var(--brd);color:var(--txt)}
+.bsm{padding:8px 13px;font-size:12px;border-radius:6px;background:var(--brd);border:none;color:var(--txt);cursor:pointer}
+.bsm:hover{background:var(--g);color:#fff}
+.br{display:flex;gap:9px;margin-top:6px}.br .bp{flex:1}
+/* Status */
+.st{font-size:13px;padding:9px 13px;border-radius:7px;margin-top:9px;display:none;align-items:center;gap:7px}
+.st.on{display:flex}
+.ok2{background:rgba(37,211,102,.12);color:var(--g)}
+.err{background:rgba(241,92,109,.12);color:var(--red)}
+.inf{background:rgba(83,189,235,.12);color:var(--blue)}
+/* Log */
+.log{background:var(--dark);border-radius:8px;padding:14px;font-family:monospace;font-size:12px;max-height:220px;overflow-y:auto;margin-top:14px}
+.ll{padding:3px 0;color:var(--mut)}.ll.ok{color:var(--g)}.ll.err{color:var(--red)}.ll.inf{color:var(--blue)}
+/* Copy box */
+.cpbox{background:var(--dark);border-radius:8px;padding:14px;margin-top:14px}
+.cprow{margin-bottom:11px}
+.cprow label{font-size:11px;color:var(--mut);margin-bottom:4px;display:block}
+.crow{display:flex;gap:7px}
+.crow input{font-family:monospace;font-size:12px;background:var(--brd)}
+.cbtn{padding:8px 11px;background:var(--brd);border:none;border-radius:6px;color:var(--txt);cursor:pointer;font-size:12px;white-space:nowrap}
+.cbtn:hover{background:var(--g);color:#fff}
+/* Badge */
+.opt{font-size:11px;padding:2px 7px;border-radius:20px;background:var(--brd);color:var(--mut);margin-right:6px}
+/* Success */
+.big{font-size:64px;text-align:center;margin:16px 0}
+.stitle{font-size:24px;font-weight:700;text-align:center;color:var(--g);margin-bottom:10px}
+.sdesc{text-align:center;color:var(--mut);font-size:13px;line-height:1.7}
+/* Spinner */
+.spin{width:16px;height:16px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:sp .6s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
-<div class="container">
-  <div class="header">
-    <div class="logo">🤖</div>
-    <h1>WhatsApp AI Agent</h1>
-    <p>אשף הגדרה — בוא נגדיר הכל ביחד</p>
+<div class="wrap">
+  <h1>🤖 WhatsApp AI Agent</h1>
+  <p class="sub">אשף הגדרה — כל שלב מסביר בדיוק מה ללחוץ</p>
+
+  <div class="prog">
+    <div class="ps act" id="p0"></div><div class="ps" id="p1"></div>
+    <div class="ps" id="p2"></div><div class="ps" id="p3"></div><div class="ps" id="p4"></div>
   </div>
 
-  <div class="progress" id="progress">
-    <div class="progress-step active" id="p0"></div>
-    <div class="progress-step" id="p1"></div>
-    <div class="progress-step" id="p2"></div>
-    <div class="progress-step" id="p3"></div>
-    <div class="progress-step" id="p4"></div>
-  </div>
-
-  <!-- Screen 0: Welcome -->
-  <div class="screen active" id="s0">
+  <!-- 0: Welcome -->
+  <div class="sc on" id="s0">
     <div class="card">
-      <div class="card-title"><span class="icon">👋</span> ברוך הבא!</div>
-      <div class="card-desc">
-        האשף ינחה אותך דרך 4 שלבים קצרים. בסוף הסוכן יעבוד לחלוטין —
-        יענה לך ב-WhatsApp, יזכיר, יתזמן פגישות ויענה בשמך לאנשים אחרים.
-      </div>
-      <div class="steps">
-        <ol>
-          <li>מפתח <strong>Anthropic</strong> (Claude AI) — בחינם להתחלה</li>
-          <li>מפתח <strong>WhatsApp Cloud API</strong> (Meta) — בחינם</li>
-          <li>מפתח <strong>ngrok</strong> — בחינם</li>
-          <li>חיבור אוטומטי ל-<strong>Meta</strong> + הפעלה</li>
-        </ol>
-      </div>
-      <button class="btn btn-primary" onclick="goTo(1)">התחל ←</button>
+      <div class="ct">👋 ברוך הבא!</div>
+      <div class="cd">האשף ינחה אותך ב-4 שלבים. כל שלב: קישור אחד, העתקת מפתח, זהו.<br>זמן משוער: <strong>15 דקות</strong>.</div>
+      <div class="steps"><ol>
+        <li>מפתח <strong>Anthropic</strong> — Claude AI (חינם להתחלה)</li>
+        <li>מפתח <strong>WhatsApp Business API</strong> (Meta) — חינם</li>
+        <li>פריסה ל-<strong>Railway</strong> — השרת יעבוד 24/7 בענן, חינם</li>
+        <li>חיבור אחרון ב-Meta — 3 קליקים</li>
+      </ol></div>
+      <button class="btn bp" onclick="go(1)">מתחילים ←</button>
     </div>
   </div>
 
-  <!-- Screen 1: Anthropic -->
-  <div class="screen" id="s1">
+  <!-- 1: Anthropic -->
+  <div class="sc" id="s1">
     <div class="card">
-      <div class="card-title"><span class="icon">🧠</span> שלב 1 — Anthropic API Key</div>
-      <div class="card-desc">Claude AI — זה המוח של הסוכן.</div>
-      <div class="steps">
-        <ol>
-          <li>כנס ל: <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com/settings/keys</a></li>
-          <li>לחץ <strong>"Create Key"</strong></li>
-          <li>תן שם (למשל "WhatsApp Agent"), לחץ <strong>Create Key</strong></li>
-          <li>העתק את המפתח שמתחיל ב- <code>sk-ant-</code></li>
-        </ol>
-      </div>
-      <div class="input-group">
+      <div class="ct">🧠 שלב 1 — Anthropic API Key</div>
+      <div class="cd">המוח של הסוכן. חינם ל-$5 קרדיט התחלתי.</div>
+      <div class="steps"><ol>
+        <li>לחץ: <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com/settings/keys ↗</a></li>
+        <li>הרשם עם Google / אימייל</li>
+        <li>לחץ <kbd>Create Key</kbd> ← תן שם כלשהו ← לחץ <kbd>Create Key</kbd></li>
+        <li>העתק את המפתח שמתחיל ב- <kbd>sk-ant-api03-...</kbd></li>
+        <li>חזור לכאן והדבק</li>
+      </ol></div>
+      <div class="ig">
         <label>Anthropic API Key</label>
-        <div class="input-row">
-          <input type="password" id="anthropicKey" placeholder="sk-ant-..." oninput="clearStatus('st1')">
-          <button class="btn-small" onclick="testAnthropic()">בדוק</button>
+        <div class="irow">
+          <input type="password" id="aKey" placeholder="sk-ant-api03-..." oninput="clr('st1')">
+          <button class="bsm" onclick="testA()">בדוק ✓</button>
         </div>
       </div>
-      <div class="status" id="st1"></div>
-      <div class="btn-row">
-        <button class="btn btn-secondary" onclick="goTo(0)">← חזור</button>
-        <button class="btn btn-primary" id="btn1" onclick="next1()">הבא ←</button>
-      </div>
+      <div class="st" id="st1"></div>
+      <div class="br"><button class="btn bs" onclick="go(0)">← חזור</button><button class="btn bp" onclick="n1()">הבא ←</button></div>
     </div>
   </div>
 
-  <!-- Screen 2: WhatsApp -->
-  <div class="screen" id="s2">
+  <!-- 2: WhatsApp -->
+  <div class="sc" id="s2">
     <div class="card">
-      <div class="card-title"><span class="icon">💬</span> שלב 2 — WhatsApp Cloud API</div>
-      <div class="card-desc">מפתח Meta לשליחת וקבלת הודעות WhatsApp.</div>
-      <div class="steps">
-        <ol>
-          <li>כנס ל: <a href="https://developers.facebook.com/apps/" target="_blank">developers.facebook.com/apps</a></li>
-          <li>לחץ <strong>"Create App"</strong> ← בחר <strong>"Business"</strong> ← <strong>Next</strong></li>
-          <li>תן שם לאפליקציה ← לחץ <strong>"Create App"</strong></li>
-          <li>במסך הבא, מצא <strong>"WhatsApp"</strong> ולחץ <strong>"Set up"</strong></li>
-          <li>לך ל: <strong>WhatsApp → API Setup</strong></li>
-          <li>מתחת ל-"From" — <strong>Phone Number ID</strong> (מספר ארוך)</li>
-          <li>מתחת ל-"Temporary access token" — העתק את הטוקן</li>
-        </ol>
-      </div>
-      <div class="input-group">
-        <label>Access Token</label>
-        <input type="password" id="waToken" placeholder="EAAG..." oninput="clearStatus('st2')">
-      </div>
-      <div class="input-group">
-        <label>Phone Number ID</label>
-        <input type="text" id="waPhoneId" placeholder="123456789012345" oninput="clearStatus('st2')">
-      </div>
-      <div style="margin-bottom:16px">
-        <button class="btn-small" onclick="testWhatsApp()">בדוק חיבור</button>
-      </div>
-      <div class="status" id="st2"></div>
-      <div class="btn-row">
-        <button class="btn btn-secondary" onclick="goTo(1)">← חזור</button>
-        <button class="btn btn-primary" id="btn2" onclick="next2()">הבא ←</button>
-      </div>
+      <div class="ct">💬 שלב 2 — WhatsApp Cloud API</div>
+      <div class="cd">מאפשר לסוכן לשלוח ולקבל הודעות WhatsApp.</div>
+      <div class="steps"><ol>
+        <li>כנס ל: <a href="https://developers.facebook.com/apps/" target="_blank">developers.facebook.com/apps ↗</a></li>
+        <li>לחץ <kbd>Create App</kbd> ← בחר <kbd>Business</kbd> ← <kbd>Next</kbd></li>
+        <li>תן שם לאפליקציה ← לחץ <kbd>Create App</kbd></li>
+        <li>גלול ומצא <strong>WhatsApp</strong> ← לחץ <kbd>Set up</kbd></li>
+        <li>לך ל: <strong>WhatsApp → API Setup</strong></li>
+        <li>מתחת ל-<strong>"From"</strong> — העתק את <strong>Phone Number ID</strong></li>
+        <li>מעל — לחץ <kbd>Generate access token</kbd> ← העתק</li>
+      </ol></div>
+      <div class="ig"><label>Access Token</label>
+        <div class="irow"><input type="password" id="waTok" placeholder="EAAG..." oninput="clr('st2')">
+          <button class="bsm" onclick="testWA()">בדוק ✓</button></div></div>
+      <div class="ig"><label>Phone Number ID</label>
+        <input type="text" id="waId" placeholder="1234567890123456" oninput="clr('st2')"></div>
+      <div class="st" id="st2"></div>
+      <div class="br"><button class="btn bs" onclick="go(1)">← חזור</button><button class="btn bp" onclick="n2()">הבא ←</button></div>
     </div>
   </div>
 
-  <!-- Screen 3: ngrok + Meta App (optional) -->
-  <div class="screen" id="s3">
+  <!-- 3: Railway + optional -->
+  <div class="sc" id="s3">
     <div class="card">
-      <div class="card-title"><span class="icon">🌐</span> שלב 3 — ngrok</div>
-      <div class="card-desc">ngrok מאפשר ל-Meta להגיע לשרת שלך. בחינם לחלוטין.</div>
-      <div class="steps">
-        <ol>
-          <li>כנס ל: <a href="https://dashboard.ngrok.com/signup" target="_blank">dashboard.ngrok.com/signup</a> (הרשמה עם Google)</li>
-          <li>לאחר ההרשמה לך ל: <a href="https://dashboard.ngrok.com/get-started/your-authtoken" target="_blank">dashboard.ngrok.com → Your Authtoken</a></li>
-          <li>לחץ <strong>"Copy"</strong> ליד ה-token</li>
-        </ol>
-      </div>
-      <div class="input-group">
-        <label>ngrok Authtoken</label>
-        <input type="password" id="ngrokToken" placeholder="2abc..." oninput="clearStatus('st3')">
-      </div>
+      <div class="ct">🚀 שלב 3 — פריסה ל-Railway (ענן חינמי)</div>
+      <div class="cd">Railway מריץ את הסוכן 24/7 ללא שום מחשב מקומי.</div>
+      <div class="steps"><ol>
+        <li>כנס ל: <a href="https://railway.app" target="_blank">railway.app ↗</a> ← הרשם עם GitHub</li>
+        <li>לחץ <kbd>New Project</kbd> ← <kbd>Deploy from GitHub repo</kbd></li>
+        <li>בחר את ה-repo: <strong>eliesouffann-tech/Coo-contract</strong></li>
+        <li>Railway יתחיל לבנות אוטומטית</li>
+        <li>לך ל: <strong>Settings → Networking → Generate Domain</strong> ← לחץ</li>
+        <li>העתק את ה-URL שנוצר (נראה כך: <kbd>xxx.up.railway.app</kbd>)</li>
+        <li>חזור לכאן והדבק</li>
+      </ol></div>
+      <div class="ig"><label>Railway URL</label>
+        <input type="text" id="railUrl" placeholder="https://xxx.up.railway.app" oninput="clr('st3')"></div>
+      <div class="st" id="st3"></div>
     </div>
 
     <div class="card">
-      <div class="card-title">
-        <span class="icon">⚡</span> חיבור Meta אוטומטי
-        <span class="optional">מומלץ</span>
-      </div>
-      <div class="card-desc">
-        עם App ID ו-App Secret — הסוכן יגדיר את ה-webhook אצל Meta לבד, ללא שום פעולה נוספת מצדך.
-      </div>
-      <div class="steps">
-        <ol>
-          <li>חזור ל: <a href="https://developers.facebook.com/apps/" target="_blank">developers.facebook.com/apps</a></li>
-          <li>לחץ על האפליקציה שיצרת → <strong>App Settings → Basic</strong></li>
-          <li>העתק <strong>App ID</strong> ו-<strong>App Secret</strong> (לחץ Show)</li>
-        </ol>
-      </div>
-      <div class="input-group">
-        <label>Meta App ID <span class="optional">אופציונלי</span></label>
-        <input type="text" id="metaAppId" placeholder="1234567890123456">
-      </div>
-      <div class="input-group">
-        <label>Meta App Secret <span class="optional">אופציונלי</span></label>
-        <input type="password" id="metaAppSecret" placeholder="abc123...">
-      </div>
-      <div class="status" id="st3"></div>
-      <div class="btn-row">
-        <button class="btn btn-secondary" onclick="goTo(2)">← חזור</button>
-        <button class="btn btn-primary" id="btn3" onclick="next3()">הגדר הכל ←</button>
-      </div>
+      <div class="ct">⚙️ חיבור Meta אוטומטי <span class="opt">מומלץ — חוסך צעד ידני</span></div>
+      <div class="cd">עם App ID ו-App Secret — הסוכן יגדיר את ה-webhook אצל Meta לבד.</div>
+      <div class="steps"><ol>
+        <li>חזור לאפליקציה ב-Meta</li>
+        <li>לך ל: <strong>App Settings → Basic</strong></li>
+        <li>העתק <strong>App ID</strong> (מספר) ו-<strong>App Secret</strong> (לחץ <kbd>Show</kbd>)</li>
+      </ol></div>
+      <div class="ig"><label>Meta App ID <span class="opt">אופציונלי</span></label>
+        <input type="text" id="metaId" placeholder="1234567890123456"></div>
+      <div class="ig"><label>Meta App Secret <span class="opt">אופציונלי</span></label>
+        <input type="password" id="metaSec" placeholder="abc123..."></div>
     </div>
 
     <div class="card">
-      <div class="card-title"><span class="icon">🎙</span> הודעות קוליות <span class="optional">אופציונלי</span></div>
-      <div class="card-desc">מפתח OpenAI להמרת הודעות קוליות לטקסט. אפשר לדלג ולהוסיף מאוחר יותר.</div>
-      <div class="input-group">
-        <label>OpenAI API Key <span class="optional">אופציונלי</span></label>
-        <input type="password" id="openaiKey" placeholder="sk-...">
-      </div>
+      <div class="ct">🎙 הודעות קוליות <span class="opt">אופציונלי</span></div>
+      <div class="cd">OpenAI Whisper לתמלול. אפשר להוסיף אחר כך.</div>
+      <div class="steps"><ol>
+        <li>כנס ל: <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com/api-keys ↗</a></li>
+        <li>לחץ <kbd>Create new secret key</kbd> ← העתק</li>
+      </ol></div>
+      <div class="ig"><label>OpenAI API Key <span class="opt">אופציונלי</span></label>
+        <input type="password" id="oKey" placeholder="sk-..."></div>
     </div>
+
+    <div class="card">
+      <div class="ct">📧 שליחת מיילים <span class="opt">אופציונלי</span></div>
+      <div class="cd">Gmail App Password — שלח מיילים בשמך.</div>
+      <div class="steps"><ol>
+        <li>Gmail → <kbd>⚙️ Settings</kbd> → <kbd>Security</kbd> → <kbd>2-Step Verification</kbd> → <kbd>App Passwords</kbd></li>
+        <li>תן שם כלשהו ← לחץ <kbd>Generate</kbd> ← העתק הסיסמה בת 16 ספרות</li>
+      </ol></div>
+      <div class="ig"><label>Gmail כתובת <span class="opt">אופציונלי</span></label>
+        <input type="email" id="emailAddr" placeholder="you@gmail.com"></div>
+      <div class="ig"><label>App Password <span class="opt">אופציונלי</span></label>
+        <input type="password" id="emailPass" placeholder="xxxx xxxx xxxx xxxx"></div>
+    </div>
+
+    <div class="br"><button class="btn bs" onclick="go(2)">← חזור</button><button class="btn bp" id="btn3" onclick="n3()">הגדר הכל ←</button></div>
   </div>
 
-  <!-- Screen 4: Processing -->
-  <div class="screen" id="s4">
+  <!-- 4: Processing -->
+  <div class="sc" id="s4">
     <div class="card">
-      <div class="card-title"><span class="icon">⚙️</span> מגדיר הכל...</div>
+      <div class="ct"><span class="spin"></span> מגדיר הכל...</div>
       <div class="log" id="log"></div>
     </div>
   </div>
 
-  <!-- Screen 5: Manual Meta instructions (if auto-registration failed) -->
-  <div class="screen" id="s5">
+  <!-- 5: Manual Meta instructions -->
+  <div class="sc" id="s5">
     <div class="card">
-      <div class="card-title"><span class="icon">📋</span> צעד אחרון — חיבור Meta</div>
-      <div class="card-desc">
-        עוד פעולה אחת קטנה ב-Meta Developer Console — פחות מדקה.
+      <div class="ct">📋 צעד אחרון — חיבור Meta (2 דקות)</div>
+      <div class="cd">הגדרה אחת קצרה ב-Meta Developer Console.</div>
+      <div class="steps"><ol>
+        <li>כנס ל: <a href="https://developers.facebook.com/apps/" target="_blank">developers.facebook.com/apps ↗</a> ← לחץ על האפליקציה שלך</li>
+        <li>לך ל: <strong>WhatsApp → Configuration</strong></li>
+        <li>לחץ <kbd>Edit</kbd> ליד Webhook</li>
+        <li>הכנס את הפרטים שלמטה ← לחץ <kbd>Verify and Save</kbd></li>
+        <li>גלול ל-"Webhook fields" ← לחץ <kbd>Subscribe</kbd> ליד <strong>messages</strong></li>
+        <li>חזור לכאן ולחץ "סיימתי"</li>
+      </ol></div>
+      <div class="cpbox">
+        <div class="cprow"><label>Callback URL — הדבק בשדה הראשון</label>
+          <div class="crow"><input type="text" id="wUrl" readonly><button class="cbtn" onclick="cp('wUrl',this)">העתק</button></div></div>
+        <div class="cprow"><label>Verify Token — הדבק בשדה השני</label>
+          <div class="crow"><input type="text" id="vTok" readonly><button class="cbtn" onclick="cp('vTok',this)">העתק</button></div></div>
       </div>
-      <div class="steps">
-        <ol>
-          <li>כנס ל: <a href="https://developers.facebook.com/apps/" target="_blank">developers.facebook.com/apps</a> ← לחץ על האפליקציה שלך</li>
-          <li>לך ל: <strong>WhatsApp → Configuration</strong></li>
-          <li>לחץ <strong>"Edit"</strong> ליד Webhook והכנס את הפרטים הבאים:</li>
-        </ol>
-      </div>
-      <div class="webhook-box">
-        <div class="webhook-row">
-          <label>Callback URL</label>
-          <div class="copy-row">
-            <input type="text" id="webhookUrl" readonly>
-            <button class="copy-btn" onclick="copyField('webhookUrl')">העתק</button>
-          </div>
-        </div>
-        <div class="webhook-row">
-          <label>Verify Token</label>
-          <div class="copy-row">
-            <input type="text" id="verifyTokenDisplay" readonly>
-            <button class="copy-btn" onclick="copyField('verifyTokenDisplay')">העתק</button>
-          </div>
-        </div>
-      </div>
-      <div class="steps" style="margin-top:16px">
-        <ol start="4">
-          <li>לחץ <strong>"Verify and Save"</strong></li>
-          <li>מתחת ל-"Webhook fields" — לחץ <strong>Subscribe</strong> על <strong>messages</strong></li>
-          <li>חזור לכאן ולחץ "סיימתי"</li>
-        </ol>
-      </div>
-      <button class="btn btn-primary" onclick="startAgent()" style="margin-top:16px">
-        ✅ סיימתי — הפעל את הסוכן
-      </button>
+      <button class="btn bp" onclick="done()" style="margin-top:16px">✅ סיימתי — הפעל סוכן</button>
     </div>
   </div>
 
-  <!-- Screen 6: Done! -->
-  <div class="screen" id="s6">
+  <!-- 6: Done -->
+  <div class="sc" id="s6">
     <div class="card">
-      <div class="success-icon">🎉</div>
-      <div class="success-title">הסוכן מוכן!</div>
-      <div class="success-desc">
-        שלח הודעה למספר WhatsApp Business שלך<br>
-        ותקבל תשובה מהסוכן.<br><br>
-        <strong>שלח <code>/profile</code> כדי להגדיר את שמך וסגנון הכתיבה שלך.</strong>
-      </div>
-      <div style="text-align:center;margin-top:20px;color:var(--muted);font-size:13px">
-        הסוכן רץ ברקע. לסגירה — לחץ Ctrl+C בטרמינל.
+      <div class="big">🎉</div>
+      <div class="stitle">הסוכן מוכן!</div>
+      <div class="sdesc">
+        שלח הודעה למספר ה-WhatsApp Business שלך<br>ותקבל תשובה מהסוכן.<br><br>
+        <strong>שלח <kbd>/profile</kbd> להגדרת שמך וסגנון הכתיבה שלך.</strong><br><br>
+        הסוכן רץ ב-Railway 24/7 — גם כשהמחשב שלך כבוי.
       </div>
     </div>
   </div>
 </div>
 
 <script>
-let currentScreen = 0;
-const TOTAL = 5;
-
-function goTo(n) {
-  document.getElementById('s' + currentScreen).classList.remove('active');
-  document.getElementById('s' + n).classList.add('active');
-  currentScreen = n;
-  updateProgress(n);
+let cur=0;
+const N=5;
+function go(n){
+  document.getElementById('s'+cur).classList.remove('on');
+  document.getElementById('s'+n).classList.add('on');
+  cur=n; upProg(n);
+  window.scrollTo(0,0);
 }
-
-function updateProgress(n) {
-  for (let i = 0; i < TOTAL; i++) {
-    const el = document.getElementById('p' + i);
-    if (!el) continue;
-    el.className = 'progress-step ' + (i < n ? 'done' : i === n ? 'active' : '');
+function upProg(n){
+  for(let i=0;i<N;i++){
+    const e=document.getElementById('p'+i);
+    if(!e)return;
+    e.className='ps '+(i<n?'done':i===n?'act':'');
   }
 }
-
-function clearStatus(id) {
-  const el = document.getElementById(id);
-  el.className = 'status';
-  el.textContent = '';
+function clr(id){const e=document.getElementById(id);e.className='st';}
+function show(id,cls,msg){
+  const e=document.getElementById(id);
+  e.className='st on '+cls;
+  e.innerHTML=(cls==='ok2'?'✅ ':cls==='err'?'❌ ':'ℹ️ ')+msg;
 }
-
-function showStatus(id, type, msg) {
-  const el = document.getElementById(id);
-  el.className = 'status show ' + type;
-  el.innerHTML = (type === 'ok' ? '✅ ' : type === 'err' ? '❌ ' : 'ℹ️ ') + msg;
+async function post(url,data){
+  try{const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});return r.json();}
+  catch(e){return{ok:false,error:e.message};}
 }
-
-async function testAnthropic() {
-  const key = document.getElementById('anthropicKey').value.trim();
-  if (!key) return showStatus('st1', 'err', 'הכנס מפתח');
-  showStatus('st1', 'info', 'בודק...');
-  const r = await post('/api/test/anthropic', { key });
-  if (r.ok) showStatus('st1', 'ok', 'המפתח תקין!');
-  else showStatus('st1', 'err', r.error);
+async function testA(){
+  const k=v('aKey');if(!k)return show('st1','err','הכנס מפתח');
+  show('st1','inf','בודק...');
+  const r=await post('/api/test/anthropic',{key:k});
+  r.ok?show('st1','ok2','המפתח תקין!'):show('st1','err',r.error);
 }
-
-async function testWhatsApp() {
-  const token = document.getElementById('waToken').value.trim();
-  const phoneNumberId = document.getElementById('waPhoneId').value.trim();
-  if (!token || !phoneNumberId) return showStatus('st2', 'err', 'הכנס את שני הפרטים');
-  showStatus('st2', 'info', 'בודק...');
-  const r = await post('/api/test/whatsapp', { token, phoneNumberId });
-  if (r.ok) showStatus('st2', 'ok', 'החיבור תקין!');
-  else showStatus('st2', 'err', r.error);
+async function testWA(){
+  const tok=v('waTok'),id=v('waId');
+  if(!tok||!id)return show('st2','err','הכנס את שני הפרטים');
+  show('st2','inf','בודק...');
+  const r=await post('/api/test/whatsapp',{token:tok,phoneNumberId:id});
+  r.ok?show('st2','ok2','החיבור תקין!'):show('st2','err',r.error);
 }
-
-function next1() {
-  const key = document.getElementById('anthropicKey').value.trim();
-  if (!key.startsWith('sk-ant-')) return showStatus('st1', 'err', 'המפתח צריך להתחיל ב-sk-ant-');
-  goTo(2);
+function n1(){
+  const k=v('aKey');
+  if(!k.startsWith('sk-ant-'))return show('st1','err','המפתח צריך להתחיל ב-sk-ant-');
+  go(2);
 }
-
-function next2() {
-  const token = document.getElementById('waToken').value.trim();
-  const phoneId = document.getElementById('waPhoneId').value.trim();
-  if (!token) return showStatus('st2', 'err', 'הכנס Access Token');
-  if (!phoneId.match(/^\d{10,20}$/)) return showStatus('st2', 'err', 'Phone Number ID — מספרים בלבד');
-  goTo(3);
+function n2(){
+  const tok=v('waTok'),id=v('waId');
+  if(!tok)return show('st2','err','הכנס Access Token');
+  if(!/^\d{10,20}$/.test(id))return show('st2','err','Phone Number ID — מספרים בלבד');
+  go(3);
 }
-
-async function next3() {
-  const ngrokToken = document.getElementById('ngrokToken').value.trim();
-  if (!ngrokToken) return showStatus('st3', 'err', 'הכנס ngrok Authtoken');
-
-  document.getElementById('btn3').disabled = true;
-  goTo(4);
-
-  const log = document.getElementById('log');
-  function addLog(type, msg) {
-    const d = document.createElement('div');
-    d.className = 'log-line ' + type;
-    d.textContent = (type === 'ok' ? '✅ ' : type === 'err' ? '❌ ' : '⏳ ') + msg;
-    log.appendChild(d);
-    log.scrollTop = log.scrollHeight;
-  }
-
-  addLog('info', 'שומר הגדרות...');
-  const saveRes = await post('/api/configure', {
-    anthropicKey: document.getElementById('anthropicKey').value.trim(),
-    waToken: document.getElementById('waToken').value.trim(),
-    waPhoneId: document.getElementById('waPhoneId').value.trim(),
-    ngrokToken,
-    openaiKey: document.getElementById('openaiKey').value.trim() || null,
-    metaAppId: document.getElementById('metaAppId').value.trim() || null,
-    metaAppSecret: document.getElementById('metaAppSecret').value.trim() || null,
+async function n3(){
+  const railUrl=v('railUrl');
+  if(!railUrl.startsWith('https://'))return show('st3','err','הכנס Railway URL שמתחיל ב-https://');
+  document.getElementById('btn3').disabled=true;
+  go(4);
+  const log=document.getElementById('log');
+  function addLog(t,m){const d=document.createElement('div');d.className='ll '+t;d.textContent=(t==='ok'?'✅ ':t==='err'?'❌ ':'⏳ ')+m;log.appendChild(d);log.scrollTop=log.scrollHeight;}
+  addLog('inf','שולח הגדרות לשרת...');
+  const res=await post('/api/configure',{
+    anthropicKey:v('aKey'),waToken:v('waTok'),waPhoneId:v('waId'),
+    railwayUrl:railUrl,
+    metaAppId:v('metaId')||null,metaAppSecret:v('metaSec')||null,
+    openaiKey:v('oKey')||null,emailAddress:v('emailAddr')||null,emailPassword:v('emailPass')||null,
   });
-
-  if (!saveRes.ok) { addLog('err', 'שגיאה בשמירה'); return; }
-  addLog('ok', 'הגדרות נשמרו');
-
-  addLog('info', 'מפעיל ngrok...');
-  const connRes = await post('/api/connect', {
-    ngrokToken,
-    metaAppId: document.getElementById('metaAppId').value.trim() || null,
-    metaAppSecret: document.getElementById('metaAppSecret').value.trim() || null,
-  });
-
-  if (!connRes.ok) { addLog('err', 'שגיאה ב-ngrok: ' + connRes.error); return; }
-  addLog('ok', 'ngrok פועל: ' + connRes.publicUrl);
-
-  if (connRes.metaRegistered) {
-    addLog('ok', 'Webhook נרשם אצל Meta אוטומטית!');
-    addLog('info', 'מפעיל את הסוכן...');
-    await post('/api/start-agent', {});
-    setTimeout(() => goTo(6), 1000);
+  if(!res.ok){addLog('err','שגיאה: '+(res.error||'unknown'));return;}
+  addLog('ok','הגדרות נשמרו');
+  addLog('inf','מנסה לרשום Webhook אצל Meta...');
+  const con=await post('/api/connect',{railwayUrl,metaAppId:v('metaId')||null,metaAppSecret:v('metaSec')||null});
+  if(!con.ok){addLog('err','ngrok/Meta: '+con.error);return;}
+  addLog('ok','כתובת ציבורית: '+con.publicUrl);
+  if(con.metaRegistered){
+    addLog('ok','Webhook נרשם אצל Meta אוטומטית!');
+    addLog('inf','מפעיל את הסוכן...');
+    await post('/api/start-agent',{});
+    setTimeout(()=>go(6),800);
   } else {
-    addLog('info', 'נדרשת הגדרה ידנית קצרה ב-Meta...');
-    document.getElementById('webhookUrl').value = connRes.webhookUrl;
-    document.getElementById('verifyTokenDisplay').value = connRes.verifyToken;
-    setTimeout(() => goTo(5), 1000);
+    addLog('inf','צריך רישום ידני קצר ב-Meta...');
+    document.getElementById('wUrl').value=con.webhookUrl;
+    document.getElementById('vTok').value=con.verifyToken;
+    setTimeout(()=>go(5),800);
   }
 }
-
-async function startAgent() {
-  await post('/api/start-agent', {});
-  goTo(6);
+async function done(){await post('/api/start-agent',{});go(6);}
+function cp(id,btn){
+  const e=document.getElementById(id);
+  navigator.clipboard.writeText(e.value).then(()=>{const o=btn.textContent;btn.textContent='✅';setTimeout(()=>btn.textContent=o,1500);});
 }
-
-function copyField(id) {
-  const el = document.getElementById(id);
-  navigator.clipboard.writeText(el.value).then(() => {
-    const btn = el.nextElementSibling;
-    const orig = btn.textContent;
-    btn.textContent = '✅ הועתק';
-    setTimeout(() => btn.textContent = orig, 1500);
-  });
-}
-
-async function post(url, data) {
-  try {
-    const r = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    return r.json();
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
-}
+function v(id){return document.getElementById(id).value.trim();}
 </script>
 </body>
 </html>

@@ -206,17 +206,31 @@ async function start() {
 
   app.listen(PORT, () => console.log(`\n🚀 שרת רץ על פורט ${PORT}`));
 
-  if (process.env.NGROK_AUTHTOKEN) {
+  // Detect deployment platform
+  const publicUrl = process.env.PUBLIC_URL          // manually set
+    || (process.env.RAILWAY_PUBLIC_DOMAIN && `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`)
+    || (process.env.RENDER_EXTERNAL_URL)             // Render
+    || null;
+
+  if (publicUrl) {
+    // ── Cloud deployment (Railway / Render / etc.) ──
+    const webhookUrl = `${publicUrl}/webhook`;
+    console.log(`\n🌐 URL ציבורי: ${publicUrl}`);
+    const registered = await tryRegisterMeta(webhookUrl);
+    if (registered) {
+      console.log("🎉 Webhook נרשם אוטומטית — הסוכן מוכן!\n");
+    } else {
+      printInstructions(webhookUrl);
+    }
+  } else if (process.env.NGROK_AUTHTOKEN) {
+    // ── Local with ngrok ──
     await startNgrok();
   } else {
-    console.log("\n⚠️  NGROK_AUTHTOKEN לא מוגדר. הפעל 'npm run setup'.\n");
+    console.log("\n⚠️  הגדר PUBLIC_URL או NGROK_AUTHTOKEN. הפעל 'npm run setup'.\n");
   }
 
-  if (isCalendarReady()) {
-    console.log("📅 Google Calendar מחובר ✅");
-  } else if (process.env.GOOGLE_CLIENT_ID) {
-    console.log("📅 Google Calendar: הפעל 'npm run auth-google' לחיבור");
-  }
+  if (isCalendarReady()) console.log("📅 Google Calendar מחובר ✅");
+  if (isEmailReady())    console.log("📧 שליחת מייל מוגדרת ✅");
 }
 
 async function startNgrok() {
