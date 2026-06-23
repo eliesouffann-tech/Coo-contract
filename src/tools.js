@@ -315,3 +315,29 @@ export async function executeTool(name, input) {
       return { error: `כלי לא מוכר: ${name}` };
   }
 }
+
+// Convert Anthropic tool schema → Gemini FunctionDeclaration format
+function toGeminiSchema(schema) {
+  if (!schema || typeof schema !== "object") return schema;
+  const result = {};
+  for (const [k, v] of Object.entries(schema)) {
+    if (k === "type" && typeof v === "string") {
+      result[k] = v.toUpperCase();
+    } else if (k === "properties") {
+      result[k] = Object.fromEntries(
+        Object.entries(v).map(([pk, pv]) => [pk, toGeminiSchema(pv)])
+      );
+    } else if (k === "items") {
+      result[k] = toGeminiSchema(v);
+    } else {
+      result[k] = v;
+    }
+  }
+  return result;
+}
+
+export const GEMINI_TOOLS = TOOLS.map((tool) => ({
+  name: tool.name,
+  description: tool.description,
+  parameters: toGeminiSchema(tool.input_schema),
+}));

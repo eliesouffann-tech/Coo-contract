@@ -40,12 +40,12 @@ app.get("/api/status", (_req, res) => {
   res.json({ configured });
 });
 
-// ─── Test Anthropic key ───────────────────────────────────────────────────────
+// ─── Test Gemini key ──────────────────────────────────────────────────────────
 app.post("/api/test/anthropic", async (req, res) => {
   try {
-    await axios.get("https://api.anthropic.com/v1/models", {
-      headers: { "x-api-key": req.body.key, "anthropic-version": "2023-06-01" },
-    });
+    await axios.get(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${req.body.key}`
+    );
     res.json({ ok: true });
   } catch {
     res.json({ ok: false, error: "מפתח לא תקין" });
@@ -67,12 +67,12 @@ app.post("/api/test/whatsapp", async (req, res) => {
 
 // ─── Main configure endpoint ──────────────────────────────────────────────────
 app.post("/api/configure", async (req, res) => {
-  const { anthropicKey, waToken, waPhoneId, ngrokToken, openaiKey, metaAppId, metaAppSecret } = req.body;
+  const { geminiKey, waToken, waPhoneId, ngrokToken, openaiKey, metaAppId, metaAppSecret } = req.body;
 
   _verifyToken = randomBytes(16).toString("hex");
 
   // 1. Write .env immediately
-  writeEnv({ anthropicKey, waToken, waPhoneId, ngrokToken, openaiKey, verifyToken: _verifyToken });
+  writeEnv({ geminiKey, waToken, waPhoneId, ngrokToken, openaiKey, verifyToken: _verifyToken });
 
   res.json({ ok: true, step: "env_saved" });
 });
@@ -143,13 +143,13 @@ app.get("/", (_req, res) => {
   res.sendFile(join(ROOT, "public", "setup.html"));
 });
 
-function writeEnv({ anthropicKey, waToken, waPhoneId, ngrokToken, openaiKey, verifyToken }) {
+function writeEnv({ geminiKey, waToken, waPhoneId, ngrokToken, openaiKey, verifyToken }) {
   const openaiLine = openaiKey
     ? `\n# OpenAI Whisper (הודעות קוליות)\nOPENAI_API_KEY=${openaiKey}`
     : "";
   writeFileSync(
     ENV_FILE,
-    `# Anthropic\nANTHROPIC_API_KEY=${anthropicKey}\n\n` +
+    `# Google Gemini (FREE)\nGEMINI_API_KEY=${geminiKey}\n\n` +
     `# WhatsApp Cloud API\nWHATSAPP_TOKEN=${waToken}\nWHATSAPP_PHONE_NUMBER_ID=${waPhoneId}\n\n` +
     `# Webhook\nVERIFY_TOKEN=${verifyToken}\n\n` +
     `# ngrok\nNGROK_AUTHTOKEN=${ngrokToken}` +

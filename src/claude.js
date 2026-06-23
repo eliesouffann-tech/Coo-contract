@@ -1,21 +1,26 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import {
   getConversation, saveConversation,
   getProfile, getAllNotesText, getAllContactsText, getTasksText,
 } from "./memory.js";
-import { TOOLS, executeTool } from "./tools.js";
+import { GEMINI_TOOLS, executeTool } from "./tools.js";
 import { isCalendarReady, getUpcomingEventsText } from "./calendar.js";
 import { isEmailReady } from "./email.js";
+import { webSearch } from "./search.js";
 
-const client = new Anthropic();
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Server-side tools hosted by Anthropic — no client execution needed
-const SERVER_TOOLS = [
-  { type: "web_search_20260209", name: "web_search" },
-  { type: "web_fetch_20260209",  name: "web_fetch"  },
-];
-
-const SERVER_TOOL_NAMES = new Set(SERVER_TOOLS.map((t) => t.name));
+const WEB_SEARCH_TOOL = {
+  name: "web_search",
+  description: "מחפש מידע עדכני ברשת. השתמש כשצריך נתונים עדכניים: מחירים, חדשות, מזג אוויר, כתובות.",
+  parameters: {
+    type: "OBJECT",
+    properties: {
+      query: { type: "STRING", description: "שאילתת חיפוש" },
+    },
+    required: ["query"],
+  },
+};
 
 async function buildSystemPrompt(fromPhone) {
   const profile = getProfile();
@@ -32,7 +37,7 @@ async function buildSystemPrompt(fromPhone) {
   if (isCalendarReady()) {
     try {
       calendarSection = `\n📅 לוח זמנים היום:\n${await getUpcomingEventsText()}`;
-    } catch { /* calendar error — skip */ }
+    } catch { /* skip */ }
   }
 
   const isOwner = profile.ownerPhone && fromPhone === profile.ownerPhone;
@@ -76,70 +81,59 @@ ${tasks}${emailStatus}
 - הודעות WhatsApp — קצר, ברור, אמוג'י לנוחות קריאה`;
 }
 
+function toGeminiHistory(history) {
+  return history.map((msg) => ({
+    role: msg.role === "assistant" ? "model" : "user",
+    parts: [{ text: msg.content }],
+  }));
+}
+
 export async function chat(fromPhone, userContent) {
   const history = getConversation(fromPhone);
+  const systemPrompt = await buildSystemPrompt(fromPhone);
 
-  const contentForClaude = typeof userContent === "string"
+  const model = genAI.getGenerativeModel({
+    model: "gemini-2.0-flash",
+    systemInstruction: systemPrompt,
+    tools: [{ functionDeclarations: [...GEMINI_TOOLS, WEB_SEARCH_TOOL] }],
+  });
+
+  const session = model.startChat({ history: toGeminiHistory(history) });
+
+  const userParts = typeof userContent === "string"
     ? userContent
     : userContent.blocks;
 
-  const working = [
-    ...history,
-    { role: "user", content: contentForClaude },
-  ];
+  let response = await session.sendMessage(userParts);
 
-  let reply = "";
-
+  // Agentic tool-call loop
   while (true) {
-    const response = await client.messages.create({
-      model: "claude-opus-4-8",
-      max_tokens: 4096,
-      thinking: { type: "adaptive" },
-      system: await buildSystemPrompt(fromPhone),
-      tools: [...SERVER_TOOLS, ...TOOLS],
-      messages: working,
-    });
+    const calls = response.response.functionCalls?.() ?? [];
+    if (!calls.length) break;
 
-    working.push({ role: "assistant", content: response.content });
-
-    if (response.stop_reason === "tool_use") {
-      const results = [];
-
-      for (const block of response.content) {
-        if (block.type !== "tool_use") continue;
-
-        // Server-side tools (web_search, web_fetch) are executed by Anthropic —
-        // pass a placeholder result so the loop can continue
-        if (SERVER_TOOL_NAMES.has(block.name)) {
-          console.log(`🌐 ${block.name}`, JSON.stringify(block.input).slice(0, 100));
-          results.push({
-            type: "tool_result",
-            tool_use_id: block.id,
-            content: JSON.stringify({ status: "executed_server_side" }),
-          });
-          continue;
-        }
-
-        // User-defined tools
-        console.log(`🔧 ${block.name}`, JSON.stringify(block.input).slice(0, 120));
-        const result = await executeTool(block.name, block.input);
-        results.push({
-          type: "tool_result",
-          tool_use_id: block.id,
-          content: JSON.stringify(result),
-        });
+    const functionResponses = [];
+    for (const call of calls) {
+      console.log(`🔧 ${call.name}`, JSON.stringify(call.args).slice(0, 120));
+      let result;
+      try {
+        result = call.name === "web_search"
+          ? await webSearch(call.args.query)
+          : await executeTool(call.name, call.args);
+      } catch (err) {
+        result = { error: err.message };
       }
-
-      working.push({ role: "user", content: results });
-      continue;
+      functionResponses.push({
+        functionResponse: {
+          name: call.name,
+          response: { result: JSON.stringify(result) },
+        },
+      });
     }
 
-    reply = response.content
-      .filter((b) => b.type === "text")
-      .map((b) => b.text)
-      .join("");
-    break;
+    response = await session.sendMessage(functionResponses);
   }
+
+  const reply = response.response.text?.() ?? "";
 
   // Persist text-only history
   const userSummary = typeof userContent === "string" ? userContent : userContent.summary;

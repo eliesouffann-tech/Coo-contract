@@ -88,7 +88,7 @@ input.ok{border-color:var(--g)}input.bad{border-color:var(--red)}
       <div class="ct">👋 ברוך הבא!</div>
       <div class="cd">האשף ינחה אותך ב-4 שלבים. כל שלב: קישור אחד, העתקת מפתח, זהו.<br>זמן משוער: <strong>15 דקות</strong>.</div>
       <div class="steps"><ol>
-        <li>מפתח <strong>Anthropic</strong> — Claude AI (חינם להתחלה)</li>
+        <li>מפתח <strong>Google Gemini</strong> — AI בחינם לגמרי</li>
         <li>מפתח <strong>WhatsApp Business API</strong> (Meta) — חינם</li>
         <li>פריסה ל-<strong>Railway</strong> — השרת יעבוד 24/7 בענן, חינם</li>
         <li>חיבור אחרון ב-Meta — 3 קליקים</li>
@@ -97,22 +97,22 @@ input.ok{border-color:var(--g)}input.bad{border-color:var(--red)}
     </div>
   </div>
 
-  <!-- 1: Anthropic -->
+  <!-- 1: Gemini -->
   <div class="sc" id="s1">
     <div class="card">
-      <div class="ct">🧠 שלב 1 — Anthropic API Key</div>
-      <div class="cd">המוח של הסוכן. חינם ל-$5 קרדיט התחלתי.</div>
+      <div class="ct">🧠 שלב 1 — Google Gemini API Key</div>
+      <div class="cd">המוח של הסוכן — חינם לחלוטין, ללא כרטיס אשראי.</div>
       <div class="steps"><ol>
-        <li>לחץ: <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com/settings/keys ↗</a></li>
-        <li>הרשם עם Google / אימייל</li>
-        <li>לחץ <kbd>Create Key</kbd> ← תן שם כלשהו ← לחץ <kbd>Create Key</kbd></li>
-        <li>העתק את המפתח שמתחיל ב- <kbd>sk-ant-api03-...</kbd></li>
+        <li>לחץ: <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com/app/apikey ↗</a></li>
+        <li>היכנס עם חשבון Google</li>
+        <li>לחץ <kbd>Create API key</kbd></li>
+        <li>העתק את המפתח שמתחיל ב- <kbd>AIza...</kbd></li>
         <li>חזור לכאן והדבק</li>
       </ol></div>
       <div class="ig">
-        <label>Anthropic API Key</label>
+        <label>Gemini API Key</label>
         <div class="irow">
-          <input type="password" id="aKey" placeholder="sk-ant-api03-..." oninput="clr('st1')">
+          <input type="password" id="aKey" placeholder="AIzaSy..." oninput="clr('st1')">
           <button class="bsm" onclick="testA()">בדוק ✓</button>
         </div>
       </div>
@@ -291,7 +291,7 @@ async function testWA(){
 }
 function n1(){
   const k=v('aKey');
-  if(!k.startsWith('sk-ant-'))return show('st1','err','המפתח צריך להתחיל ב-sk-ant-');
+  if(!k.startsWith('AIza'))return show('st1','err','המפתח צריך להתחיל ב-AIza');
   go(2);
 }
 function n2(){
@@ -309,7 +309,7 @@ async function n3(){
   function addLog(t,m){const d=document.createElement('div');d.className='ll '+t;d.textContent=(t==='ok'?'✅ ':t==='err'?'❌ ':'⏳ ')+m;log.appendChild(d);log.scrollTop=log.scrollHeight;}
   addLog('inf','שולח הגדרות לשרת...');
   const res=await post('/api/configure',{
-    anthropicKey:v('aKey'),waToken:v('waTok'),waPhoneId:v('waId'),
+    geminiKey:v('aKey'),waToken:v('waTok'),waPhoneId:v('waId'),
     railwayUrl:railUrl,
     metaAppId:v('metaId')||null,metaAppSecret:v('metaSec')||null,
     openaiKey:v('oKey')||null,emailAddress:v('emailAddr')||null,emailPassword:v('emailPass')||null,

@@ -54,29 +54,20 @@ export async function downloadWhatsAppMedia(mediaId) {
   };
 }
 
-// Build Claude-compatible content blocks for media
+// Build Gemini-compatible content parts for media
 export function buildMediaContent(buffer, mimeType, caption = "") {
   const base64 = buffer.toString("base64");
-  const blocks = [];
+  const parts = [];
 
-  if (mimeType.startsWith("image/")) {
-    if (caption) blocks.push({ type: "text", text: caption });
-    blocks.push({
-      type: "image",
-      source: { type: "base64", media_type: mimeType, data: base64 },
-    });
-  } else if (mimeType === "application/pdf") {
-    if (caption) blocks.push({ type: "text", text: caption });
-    blocks.push({
-      type: "document",
-      source: { type: "base64", media_type: "application/pdf", data: base64 },
-    });
+  if (caption) parts.push({ text: caption });
+
+  if (mimeType.startsWith("image/") || mimeType === "application/pdf") {
+    parts.push({ inlineData: { mimeType, data: base64 } });
   } else {
-    // For unsupported types, describe them
-    blocks.push({ type: "text", text: `[קובץ מסוג ${mimeType}${caption ? `: ${caption}` : ""}]` });
+    parts.push({ text: `[קובץ מסוג ${mimeType}${caption ? `: ${caption}` : ""}]` });
   }
 
-  return blocks;
+  return parts;
 }
 
 // Short text summary of media content (for storing in history)
