@@ -2,7 +2,8 @@ import axios from "axios";
 import OpenAI, { toFile } from "openai";
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
-const pdfParse = require("pdf-parse");
+// Import from lib path to avoid pdf-parse running its test suite on load
+const pdfParse = require("pdf-parse/lib/pdf-parse.js");
 
 let _openai;
 function getOpenAI() {
