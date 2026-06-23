@@ -10,7 +10,8 @@
     "setup-onedrive": "node scripts/setup-onedrive.js",
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "generate-report": "node scripts/generate-report.js"
+    "generate-report": "node scripts/generate-report.js",
+    "demo-data": "node scripts/demo-data.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",

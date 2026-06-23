@@ -8,10 +8,14 @@ import { isCalendarReady, getUpcomingEventsText } from "./calendar.js";
 import { isEmailReady } from "./email.js";
 import { webSearch } from "./search.js";
 
-const groq = new OpenAI({
-  apiKey: process.env.GROQ_API_KEY,
-  baseURL: "https://api.groq.com/openai/v1",
-});
+let _groq = null;
+function getGroq() {
+  if (!_groq) {
+    if (!process.env.GROQ_API_KEY) throw new Error("GROQ_API_KEY חסר ב-.env");
+    _groq = new OpenAI({ apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1" });
+  }
+  return _groq;
+}
 
 const MODEL = "llama-3.3-70b-versatile";
 const VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
@@ -115,7 +119,7 @@ export async function chat(fromPhone, userContent) {
         { type: "image_url", image_url: { url: `data:${userContent.mimeType};base64,${userContent.imageBase64}` } },
         { type: "text", text: userContent.caption || "תאר ונתח את התמונה בפירוט, בעברית." },
       ];
-      const visionResp = await groq.chat.completions.create({
+      const visionResp = await getGroq().chat.completions.create({
         model: VISION_MODEL,
         messages: [{ role: "user", content: visionContent }],
         max_tokens: 768,
@@ -143,7 +147,7 @@ export async function chat(fromPhone, userContent) {
       params.tool_choice = "auto";
     }
     try {
-      return await groq.chat.completions.create(params);
+      return await getGroq().chat.completions.create(params);
     } catch (err) {
       if (withTools && err.status === 400) {
         console.warn("⚠️ Tool validation error, retrying without tools:", err.message?.slice(0, 120));

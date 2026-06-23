@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard — בית האבות</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --navy: #1B3A6B;
+    --gold: #C5A028;
+    --green: #2D6A4F;
+    --red: #C1121F;
+    --amber: #E76F51;
+    --teal: #0077B6;
+    --light: #F0F2F5;
+    --dark: #2B2D42;
+    --mid: #6C757D;
+    --white: #ffffff;
+    --card-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: #EAECF0;
+    color: var(--dark);
+    direction: rtl;
+  }
+
+  /* ── Header ── */
+  header {
+    background: var(--navy);
+    color: white;
+    padding: 0 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 64px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  }
+  header h1 { font-size: 1.3rem; font-weight: 700; }
+  header .badge {
+    background: var(--gold);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  .header-right { display: flex; align-items: center; gap: 12px; }
+  #last-updated { font-size: 0.78rem; color: #99B3D0; }
+
+  /* ── Period selector ── */
+  .period-bar {
+    background: white;
+    border-bottom: 1px solid #DDE2EA;
+    padding: 10px 24px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .period-bar label { font-size: 0.88rem; color: var(--mid); font-weight: 600; }
+  .period-bar select, .period-bar input {
+    border: 1px solid #CDD4DE;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 0.88rem;
+    color: var(--dark);
+    background: white;
+    direction: rtl;
+  }
+  .btn {
+    padding: 7px 18px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    font-size: 0.88rem;
+    font-weight: 600;
+    transition: all 0.15s;
+  }
+  .btn-primary { background: var(--navy); color: white; }
+  .btn-primary:hover { background: #15305C; }
+  .btn-success { background: var(--green); color: white; }
+  .btn-success:hover { background: #235840; }
+  .btn-scan { background: var(--teal); color: white; }
+  .btn-scan:hover { background: #005F94; }
+  #status-msg { font-size: 0.82rem; color: var(--mid); margin-right: 6px; }
+
+  /* ── Main grid ── */
+  main {
+    padding: 24px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  /* ── Section titles ── */
+  .section-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--navy);
+    margin: 20px 0 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-title::after {
+    content: '';
+    flex: 1;
+    height: 2px;
+    background: linear-gradient(to left, transparent, var(--navy));
+    opacity: 0.15;
+  }
+
+  /* ── KPI cards ── */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 8px;
+  }
+  .kpi-card {
+    background: white;
+    border-radius: 12px;
+    padding: 20px 16px 16px;
+    box-shadow: var(--card-shadow);
+    border-top: 4px solid var(--navy);
+    transition: transform 0.15s;
+  }
+  .kpi-card:hover { transform: translateY(-2px); }
+  .kpi-card .kpi-label { font-size: 0.8rem; color: var(--mid); font-weight: 600; margin-bottom: 8px; }
+  .kpi-card .kpi-value { font-size: 2rem; font-weight: 800; color: var(--navy); line-height: 1; }
+  .kpi-card .kpi-sub { font-size: 0.75rem; color: var(--mid); margin-top: 6px; }
+  .kpi-card.green  { border-top-color: var(--green);  } .kpi-card.green .kpi-value  { color: var(--green); }
+  .kpi-card.red    { border-top-color: var(--red);    } .kpi-card.red .kpi-value    { color: var(--red); }
+  .kpi-card.amber  { border-top-color: var(--amber);  } .kpi-card.amber .kpi-value  { color: var(--amber); }
+  .kpi-card.teal   { border-top-color: var(--teal);   } .kpi-card.teal .kpi-value   { color: var(--teal); }
+  .kpi-card.gold   { border-top-color: var(--gold);   } .kpi-card.gold .kpi-value   { color: var(--gold); }
+
+  /* ── Charts row ── */
+  .charts-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  @media (max-width: 900px) { .charts-row { grid-template-columns: 1fr; } }
+
+  .card {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: var(--card-shadow);
+  }
+  .card-title {
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: var(--navy);
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #EEF0F3;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .chart-wrap { position: relative; height: 240px; }
+
+  /* ── Tables ── */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th {
+    background: var(--navy);
+    color: white;
+    padding: 10px 14px;
+    text-align: right;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  td { padding: 9px 14px; border-bottom: 1px solid #EEF0F3; text-align: right; }
+  tr:nth-child(even) td { background: #F8F9FA; }
+  tr:hover td { background: #EEF4FB; }
+  .status-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .status-open      { background: #FEE2E2; color: var(--red); }
+  .status-closed    { background: #DCFCE7; color: var(--green); }
+  .status-active    { background: #DBEAFE; color: var(--teal); }
+  .status-completed { background: #DCFCE7; color: var(--green); }
+  .status-planned   { background: #F3F4F6; color: var(--mid); }
+
+  /* ── Progress bar ── */
+  .progress-wrap { display: flex; align-items: center; gap: 10px; }
+  .progress-bar { flex: 1; height: 10px; background: #EEF0F3; border-radius: 6px; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 6px; transition: width 0.6s; }
+  .progress-label { font-size: 0.8rem; color: var(--mid); white-space: nowrap; min-width: 40px; text-align: left; }
+
+  /* ── Budget variance ── */
+  .variance-pos { color: var(--green); font-weight: 700; }
+  .variance-neg { color: var(--red); font-weight: 700; }
+
+  /* ── Reports history ── */
+  .report-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid #EEF0F3;
+    font-size: 0.85rem;
+  }
+  .report-item:last-child { border-bottom: none; }
+  .report-icon { font-size: 1.3rem; }
+  .report-info { flex: 1; }
+  .report-type { font-weight: 700; color: var(--navy); }
+  .report-date { font-size: 0.75rem; color: var(--mid); }
+  .report-slides { font-size: 0.78rem; background: var(--light); padding: 2px 8px; border-radius: 10px; color: var(--mid); }
+
+  /* ── Loading ── */
+  .loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 200px;
+    color: var(--mid);
+    font-size: 0.9rem;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .spinner {
+    width: 32px; height: 32px;
+    border: 3px solid var(--light);
+    border-top-color: var(--navy);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Responsive ── */
+  @media (max-width: 640px) {
+    main { padding: 12px; }
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    header h1 { font-size: 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1 id="institution-name">🏥 בית האבות — Dashboard</h1>
+  <div class="header-right">
+    <span id="last-updated"></span>
+    <span class="badge" id="onedrive-status">⏳ בודק...</span>
+  </div>
+</header>
+
+<div class="period-bar">
+  <label>תקופה:</label>
+  <select id="period-select">
+    <option value="Q1">רבעון 1</option>
+    <option value="Q2">רבעון 2</option>
+    <option value="Q3">רבעון 3</option>
+    <option value="Q4">רבעון 4</option>
+    <option value="H1">חציון 1</option>
+    <option value="H2">חציון 2</option>
+    <option value="annual">שנתי</option>
+  </select>
+  <input type="number" id="year-input" value="2025" min="2020" max="2030" style="width:85px">
+  <button class="btn btn-primary" onclick="loadData()">🔄 רענן</button>
+  <button class="btn btn-scan" onclick="triggerScan()">🔍 סרוק OneDrive</button>
+  <button class="btn btn-success" onclick="generateReport()">📊 צור דוח</button>
+  <span id="status-msg"></span>
+</div>
+
+<main>
+  <!-- KPIs -->
+  <div class="section-title">📈 מדדי ביצוע</div>
+  <div class="kpi-grid" id="kpi-grid">
+    <div class="loading"><div class="spinner"></div>טוען...</div>
+  </div>
+
+  <!-- Charts -->
+  <div class="section-title">📊 גרפים</div>
+  <div class="charts-row">
+    <div class="card">
+      <div class="card-title">⚙️ מגמת קריאות אחזקה חודשית</div>
+      <div class="chart-wrap"><canvas id="maintenance-trend-chart"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title">💰 תקציב לפי קטגוריה</div>
+      <div class="chart-wrap"><canvas id="budget-chart"></canvas></div>
+    </div>
+  </div>
+  <div class="charts-row">
+    <div class="card">
+      <div class="card-title">⚙️ חלוקת קריאות לפי סוג</div>
+      <div class="chart-wrap"><canvas id="maintenance-category-chart"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title">🏗️ סטטוס פרויקטים</div>
+      <div class="chart-wrap"><canvas id="projects-chart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Budget details -->
+  <div class="section-title">💰 תקציב מפורט</div>
+  <div class="card" style="margin-bottom:16px">
+    <div id="budget-table"><div class="loading"><div class="spinner"></div>טוען...</div></div>
+  </div>
+
+  <!-- Maintenance by department -->
+  <div class="charts-row">
+    <div class="card">
+      <div class="card-title">🏢 קריאות לפי מחלקה</div>
+      <div id="dept-table"><div class="loading"><div class="spinner"></div>טוען...</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">👷 קריאות לפי עובד</div>
+      <div id="worker-table"><div class="loading"><div class="spinner"></div>טוען...</div></div>
+    </div>
+  </div>
+
+  <!-- Projects -->
+  <div class="section-title">🏗️ פרויקטים</div>
+  <div class="card" style="margin-bottom:16px">
+    <div id="projects-table"><div class="loading"><div class="spinner"></div>טוען...</div></div>
+  </div>
+
+  <!-- Safety -->
+  <div class="section-title">🛡️ בטיחות ורגולציה</div>
+  <div class="card" style="margin-bottom:16px">
+    <div id="safety-table"><div class="loading"><div class="spinner"></div>טוען...</div></div>
+  </div>
+
+  <!-- Reports history -->
+  <div class="section-title">📋 דוחות שהופקו</div>
+  <div class="card" style="margin-bottom:32px">
+    <div id="reports-history"><div class="loading"><div class="spinner"></div>טוען...</div></div>
+  </div>
+</main>
+
+<script>
+let charts = {};
+const MONTHS_HE = ["","ינו'","פבר'","מרץ","אפר'","מאי","יוני","יולי","אוג'","ספט'","אוק'","נוב'","דצמ'"];
+
+function fmt(n, prefix = "₪") {
+  if (n == null || isNaN(n)) return "—";
+  return prefix + Math.round(n).toLocaleString("he-IL");
+}
+
+function statusBadge(status) {
+  const map = {
+    open: "status-open", closed: "status-closed", active: "status-active",
+    completed: "status-completed", planned: "status-planned",
+    in_progress: "status-active",
+  };
+  const labels = {
+    open: "פתוח", closed: "סגור", active: "פעיל", completed: "הושלם",
+    planned: "מתוכנן", in_progress: "בתהליך",
+  };
+  const cls = map[status] ?? "";
+  const lbl = labels[status] ?? status ?? "—";
+  return `<span class="status-badge ${cls}">${lbl}</span>`;
+}
+
+function severityBadge(s) {
+  const map = { high: "status-open", medium: "status-active", low: "status-planned" };
+  const lbl = { high: "גבוהה", medium: "בינונית", low: "נמוכה" };
+  return `<span class="status-badge ${map[s] ?? ""}">${lbl[s] ?? s ?? "—"}</span>`;
+}
+
+function progressBar(actual, planned) {
+  if (!planned) return "—";
+  const pct = Math.min(Math.round((actual / planned) * 100), 150);
+  const color = pct > 110 ? "#C1121F" : pct > 100 ? "#E76F51" : "#2D6A4F";
+  return `
+    <div class="progress-wrap">
+      <div class="progress-bar">
+        <div class="progress-fill" style="width:${Math.min(pct,100)}%;background:${color}"></div>
+      </div>
+      <span class="progress-label">${pct}%</span>
+    </div>`;
+}
+
+function destroyChart(id) {
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+}
+
+function createChart(id, type, labels, datasets, options = {}) {
+  destroyChart(id);
+  const ctx = document.getElementById(id);
+  if (!ctx) return;
+  charts[id] = new Chart(ctx, {
+    type,
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: "bottom", labels: { font: { family: "Arial" }, padding: 16 } } },
+      ...options,
+    },
+  });
+}
+
+async function loadData() {
+  const period = document.getElementById("period-select").value;
+  const year = parseInt(document.getElementById("year-input").value) || 2025;
+  setStatus("🔄 טוען נתונים...");
+
+  try {
+    const resp = await fetch(`/api/dashboard?period=${period}&year=${year}`);
+    if (!resp.ok) throw new Error(await resp.text());
+    const data = await resp.json();
+
+    renderKpis(data);
+    renderCharts(data);
+    renderBudgetTable(data.budget);
+    renderDeptTable(data.maintenance.byDepartment);
+    renderWorkerTable(data.maintenance.byWorker);
+    renderProjectsTable(data.projects);
+    renderSafetyTable(data.safety);
+    renderReportsHistory(data.recentReports);
+
+    document.getElementById("last-updated").textContent = "עודכן: " + new Date().toLocaleTimeString("he-IL");
+    document.getElementById("onedrive-status").textContent = data.oneDriveReady ? "✅ OneDrive מחובר" : "⚠️ OneDrive לא מחובר";
+    document.getElementById("onedrive-status").style.background = data.oneDriveReady ? "#2D6A4F" : "#E76F51";
+
+    if (data.institutionName) {
+      document.getElementById("institution-name").textContent = `🏥 ${data.institutionName} — Dashboard`;
+      document.title = `Dashboard — ${data.institutionName}`;
+    }
+
+    setStatus("");
+  } catch (err) {
+    setStatus("❌ שגיאה: " + err.message);
+  }
+}
+
+function renderKpis(data) {
+  const m = data.maintenance;
+  const b = data.budget;
+  const p = data.projects ?? [];
+  const s = data.safety;
+
+  const closureRate = m.total > 0 ? Math.round((m.closed / m.total) * 100) : 0;
+  const budgetVariance = (b.totalActual ?? 0) - (b.totalPlanned ?? 0);
+  const completedProjects = p.filter(x => x.status === "completed").length;
+  const openSafety = s.byStatus?.find(x => x.status === "open")?.c ?? 0;
+  const avgHours = m.avgHours ? Math.round(m.avgHours) : null;
+
+  const kpis = [
+    { label: "קריאות אחזקה", value: m.total ?? 0, sub: `${m.closed ?? 0} נסגרו`, color: "navy" },
+    { label: "שיעור סגירה", value: closureRate + "%", sub: `${m.open ?? 0} פתוחות`, color: closureRate >= 80 ? "green" : "amber" },
+    { label: "ממוצע סגירה", value: avgHours ? avgHours + "ש'" : "—", sub: "זמן לסגירה", color: "teal" },
+    { label: "ביצוע תקציבי", value: fmt(b.totalActual), sub: `מתוך ${fmt(b.totalPlanned)}`, color: budgetVariance <= 0 ? "green" : "red" },
+    { label: "חיסכון / חריגה", value: budgetVariance <= 0 ? fmt(-budgetVariance) : "+" + fmt(budgetVariance), sub: budgetVariance <= 0 ? "✓ חיסכון" : "⚠ חריגה", color: budgetVariance <= 0 ? "green" : "red" },
+    { label: "פרויקטים הושלמו", value: completedProjects, sub: `מתוך ${p.length}`, color: "gold" },
+    { label: "ליקויי בטיחות", value: openSafety, sub: "פתוחים", color: openSafety === 0 ? "green" : "red" },
+    { label: "סה״כ אירועי בטיחות", value: s.total ?? 0, sub: "בתקופה", color: "navy" },
+  ];
+
+  document.getElementById("kpi-grid").innerHTML = kpis.map(k => `
+    <div class="kpi-card ${k.color}">
+      <div class="kpi-label">${k.label}</div>
+      <div class="kpi-value">${k.value}</div>
+      <div class="kpi-sub">${k.sub}</div>
+    </div>
+  `).join("");
+}
+
+function renderCharts(data) {
+  const m = data.maintenance;
+  const b = data.budget;
+  const p = data.projects ?? [];
+
+  // Maintenance trend
+  if (m.monthlyTrend?.length) {
+    createChart("maintenance-trend-chart", "line",
+      m.monthlyTrend.map(x => MONTHS_HE[parseInt(x.m)] ?? x.m),
+      [{
+        label: "קריאות שנפתחו",
+        data: m.monthlyTrend.map(x => x.c),
+        borderColor: "#1B3A6B",
+        backgroundColor: "rgba(27,58,107,0.08)",
+        borderWidth: 2.5,
+        pointBackgroundColor: "#1B3A6B",
+        tension: 0.3,
+        fill: true,
+      }],
+      { plugins: { legend: { display: false } } }
+    );
+  }
+
+  // Budget by category
+  if (b.byCategory?.length) {
+    createChart("budget-chart", "bar",
+      b.byCategory.map(c => c.category ?? "אחר"),
+      [
+        { label: "מתוכנן", data: b.byCategory.map(c => c.planned ?? 0), backgroundColor: "rgba(27,58,107,0.75)" },
+        { label: "ביצוע", data: b.byCategory.map(c => c.actual ?? 0), backgroundColor: "rgba(0,119,182,0.75)" },
+      ]
+    );
+  }
+
+  // Maintenance by category (donut)
+  if (m.byCategory?.length) {
+    createChart("maintenance-category-chart", "doughnut",
+      m.byCategory.map(c => c.category ?? "אחר"),
+      [{
+        data: m.byCategory.map(c => c.c),
+        backgroundColor: ["#1B3A6B","#2D6A4F","#C5A028","#E76F51","#0077B6","#9B5DE5","#F15BB5","#E63946"],
+      }]
+    );
+  }
+
+  // Projects status (doughnut)
+  const statusCounts = {};
+  for (const pr of p) statusCounts[pr.status] = (statusCounts[pr.status] ?? 0) + 1;
+  const statusLabels = { completed: "הושלם", active: "פעיל", planned: "מתוכנן", on_hold: "מוקפא" };
+  if (Object.keys(statusCounts).length) {
+    createChart("projects-chart", "doughnut",
+      Object.keys(statusCounts).map(k => statusLabels[k] ?? k),
+      [{
+        data: Object.values(statusCounts),
+        backgroundColor: ["#2D6A4F","#0077B6","#1B3A6B","#E76F51"],
+      }]
+    );
+  }
+}
+
+function renderBudgetTable(b) {
+  if (!b?.byCategory?.length) {
+    document.getElementById("budget-table").innerHTML = "<div class='loading' style='height:80px'>אין נתוני תקציב</div>";
+    return;
+  }
+  const rows = b.byCategory.map((c, i) => {
+    const v = c.variance ?? 0;
+    const varClass = v >= 0 ? "variance-pos" : "variance-neg";
+    const varText = v >= 0 ? "+" + fmt(v).slice(1) : fmt(v);
+    return `<tr>
+      <td>${c.category ?? "—"}</td>
+      <td>${fmt(c.planned)}</td>
+      <td>${fmt(c.actual)}</td>
+      <td class="${varClass}">${varText}</td>
+      <td>${progressBar(c.actual, c.planned)}</td>
+    </tr>`;
+  });
+  document.getElementById("budget-table").innerHTML = `
+    <div class="table-wrap"><table>
+      <thead><tr><th>קטגוריה</th><th>מתוכנן</th><th>ביצוע</th><th>חריגה/חיסכון</th><th>% ביצוע</th></tr></thead>
+      <tbody>${rows.join("")}</tbody>
+      <tfoot style="background:#EEF0F3;font-weight:700">
+        <tr>
+          <td>סה״כ</td>
+          <td>${fmt(b.totalPlanned)}</td>
+          <td>${fmt(b.totalActual)}</td>
+          <td class="${(b.totalActual-b.totalPlanned)<=0?"variance-pos":"variance-neg"}">
+            ${(b.totalActual-b.totalPlanned)<=0?"+"+fmt(b.totalPlanned-b.totalActual).slice(1):fmt(b.totalActual-b.totalPlanned)}
+          </td>
+          <td>${progressBar(b.totalActual, b.totalPlanned)}</td>
+        </tr>
+      </tfoot>
+    </table></div>`;
+}
+
+function renderDeptTable(byDept) {
+  if (!byDept?.length) {
+    document.getElementById("dept-table").innerHTML = "<div class='loading' style='height:80px'>אין נתונים</div>";
+    return;
+  }
+  const max = byDept[0]?.c ?? 1;
+  const rows = byDept.map(d => `<tr>
+    <td>${d.department ?? "—"}</td>
+    <td>${progressBar(d.c, max)}</td>
+    <td style="text-align:center;font-weight:700">${d.c}</td>
+  </tr>`).join("");
+  document.getElementById("dept-table").innerHTML = `
+    <div class="table-wrap"><table>
+      <thead><tr><th>מחלקה</th><th>כמות</th><th>מספר</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function renderWorkerTable(byWorker) {
+  if (!byWorker?.length) {
+    document.getElementById("worker-table").innerHTML = "<div class='loading' style='height:80px'>אין נתונים</div>";
+    return;
+  }
+  const rows = byWorker.map(w => `<tr>
+    <td>${w.worker ?? "לא ידוע"}</td>
+    <td style="text-align:center;font-weight:700">${w.c}</td>
+  </tr>`).join("");
+  document.getElementById("worker-table").innerHTML = `
+    <div class="table-wrap"><table>
+      <thead><tr><th>עובד</th><th>קריאות</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function renderProjectsTable(projects) {
+  if (!projects?.length) {
+    document.getElementById("projects-table").innerHTML = "<div class='loading' style='height:80px'>אין פרויקטים</div>";
+    return;
+  }
+  const rows = projects.map(p => {
+    const overrun = (p.actual_cost ?? 0) > (p.planned_budget ?? 0) * 1.1;
+    return `<tr>
+      <td>${p.project_name ?? "—"}</td>
+      <td>${statusBadge(p.status)}</td>
+      <td>${p.start_date ?? "—"}</td>
+      <td>${p.end_date ?? "בתהליך"}</td>
+      <td>${fmt(p.planned_budget)}</td>
+      <td style="color:${overrun?"#C1121F":"inherit"};font-weight:${overrun?"700":"400"}">${fmt(p.actual_cost)}</td>
+      <td>${p.department ?? "—"}</td>
+    </tr>`;
+  }).join("");
+  document.getElementById("projects-table").innerHTML = `
+    <div class="table-wrap"><table>
+      <thead><tr><th>שם הפרויקט</th><th>סטטוס</th><th>התחלה</th><th>סיום</th><th>תקציב</th><th>עלות בפועל</th><th>מחלקה</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function renderSafetyTable(safety) {
+  const items = safety?.openItems ?? [];
+  if (!items.length) {
+    document.getElementById("safety-table").innerHTML = `
+      <div style="text-align:center;padding:30px;color:#2D6A4F;font-weight:700;font-size:1.1rem">
+        ✅ אין ליקויי בטיחות פתוחים
+      </div>`;
+    return;
+  }
+  const rows = items.map(i => `<tr>
+    <td>${i.date ?? "—"}</td>
+    <td>${i.type ?? "—"}</td>
+    <td>${(i.description ?? "").slice(0, 80)}</td>
+    <td>${severityBadge(i.severity)}</td>
+    <td>${i.location ?? "—"}</td>
+    <td>${statusBadge(i.status)}</td>
+  </tr>`).join("");
+  document.getElementById("safety-table").innerHTML = `
+    <div class="table-wrap"><table>
+      <thead><tr><th>תאריך</th><th>סוג</th><th>תיאור</th><th>חומרה</th><th>מיקום</th><th>סטטוס</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function renderReportsHistory(reports) {
+  if (!reports?.length) {
+    document.getElementById("reports-history").innerHTML = "<div class='loading' style='height:80px'>לא הופקו דוחות עדיין</div>";
+    return;
+  }
+  const html = reports.map(r => `
+    <div class="report-item">
+      <span class="report-icon">📊</span>
+      <div class="report-info">
+        <div class="report-type">${r.report_type} ${r.year}</div>
+        <div class="report-date">${r.generated_at?.slice(0, 16) ?? ""}</div>
+      </div>
+      <span class="report-slides">${r.pages ?? "?"} שקופיות</span>
+    </div>
+  `).join("");
+  document.getElementById("reports-history").innerHTML = html;
+}
+
+function setStatus(msg) {
+  document.getElementById("status-msg").textContent = msg;
+}
+
+async function triggerScan() {
+  setStatus("🔍 מבצע סריקה...");
+  try {
+    const resp = await fetch("/api/scan", { method: "POST" });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+    setStatus(`✅ סריקה הסתיימה: ${data.new ?? 0} קבצים חדשים`);
+    setTimeout(() => loadData(), 1000);
+  } catch (err) {
+    setStatus("❌ " + err.message);
+  }
+}
+
+async function generateReport() {
+  const period = document.getElementById("period-select").value;
+  const year = parseInt(document.getElementById("year-input").value) || 2025;
+  setStatus(`📊 מייצר דוח ${period} ${year}...`);
+  try {
+    const resp = await fetch(`/api/report?period=${period}&year=${year}`, { method: "POST" });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+    setStatus(`✅ דוח ${period} ${year} הופק — ${data.slideCount} שקופיות`);
+    setTimeout(() => loadData(), 2000);
+  } catch (err) {
+    setStatus("❌ " + err.message);
+  }
+}
+
+// Set current quarter as default
+const now = new Date();
+const currentQ = "Q" + Math.ceil((now.getMonth() + 1) / 3);
+document.getElementById("period-select").value = currentQ;
+document.getElementById("year-input").value = now.getFullYear();
+
+// Auto-load on page open
+loadData();
+
+// Auto-refresh every 5 minutes
+setInterval(loadData, 5 * 60 * 1000);
+</script>
+</body>
+</html>

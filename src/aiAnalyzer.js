@@ -1,14 +1,28 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+let _client = null;
 const MODEL = "claude-sonnet-4-6";
+
+function getClient() {
+  if (!_client) {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      throw new Error("ANTHROPIC_API_KEY לא מוגדר ב-.env — נדרש לניתוח מסמכים");
+    }
+    _client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  }
+  return _client;
+}
+
+export function isAIReady() {
+  return !!process.env.ANTHROPIC_API_KEY;
+}
 
 async function askClaude(systemPrompt, userContent, maxTokens = 2000) {
   const messages = Array.isArray(userContent)
     ? [{ role: "user", content: userContent }]
     : [{ role: "user", content: [{ type: "text", text: userContent }] }];
 
-  const resp = await client.messages.create({
+  const resp = await getClient().messages.create({
     model: MODEL,
     max_tokens: maxTokens,
     system: systemPrompt,
@@ -226,6 +240,11 @@ export async function analyzeImage(buffer, mimeType, fileName) {
 // ─── Executive summary generation ─────────────────────────────────────────────
 
 export async function generateExecutiveSummary(data, periodLabel) {
+  // Fallback summary when AI is not available
+  if (!isAIReady()) {
+    return buildFallbackSummary(data, periodLabel);
+  }
+
   const prompt = `אתה יועץ ניהולי בכיר המכין דוח הנהלה לבית אבות.
 כתוב Executive Summary קצר ומקצועי בעברית עבור ${periodLabel}.
 
@@ -242,8 +261,45 @@ export async function generateExecutiveSummary(data, periodLabel) {
   try {
     return await askClaude(prompt, `נתוני התקופה:\n${dataText}`, 1500);
   } catch {
-    return `סיכום ניהולי עבור ${periodLabel} — ללא נתונים מספיקים`;
+    return buildFallbackSummary(data, periodLabel);
   }
+}
+
+function buildFallbackSummary(data, periodLabel) {
+  const m = data.maintenanceStats ?? {};
+  const b = data.budgetSummary ?? {};
+  const p = data.projects ?? [];
+  const s = data.safetyStats ?? {};
+
+  const closureRate = m.total > 0 ? Math.round((m.closed / m.total) * 100) : 0;
+  const budgetVariance = (b.totalActual ?? 0) - (b.totalPlanned ?? 0);
+  const completedProjects = p.filter((x) => x.status === "completed").length;
+  const openSafety = s.byStatus?.find((x) => x.status === "open")?.c ?? 0;
+
+  return [
+    `**הישגים מרכזיים — ${periodLabel}**`,
+    `• שיעור סגירת קריאות אחזקה: ${closureRate}% (${m.closed ?? 0} מתוך ${m.total ?? 0})`,
+    `• פרויקטים שהושלמו: ${completedProjects} מתוך ${p.length}`,
+    budgetVariance <= 0
+      ? `• חיסכון תקציבי: ₪${Math.round(-budgetVariance).toLocaleString("he-IL")}`
+      : `• ביצוע תקציבי: ₪${Math.round(b.totalActual ?? 0).toLocaleString("he-IL")} מתוך ₪${Math.round(b.totalPlanned ?? 0).toLocaleString("he-IL")}`,
+    ``,
+    `**מדדים מרכזיים**`,
+    `• קריאות אחזקה שנפתחו: ${m.total ?? 0}`,
+    `• זמן טיפול ממוצע: ${m.avgHours ? Math.round(m.avgHours) + " שעות" : "—"}`,
+    `• תקציב מתוכנן: ₪${Math.round(b.totalPlanned ?? 0).toLocaleString("he-IL")}`,
+    `• אירועי בטיחות: ${s.total ?? 0} (${openSafety} פתוחים)`,
+    ``,
+    `**אתגרים ונקודות לשיפור**`,
+    m.open > 0 ? `• ${m.open} קריאות אחזקה עדיין פתוחות` : `• כל קריאות האחזקה טופלו`,
+    openSafety > 0 ? `• ${openSafety} ליקויי בטיחות ממתינים לסגירה` : `• אין ליקויי בטיחות פתוחים`,
+    budgetVariance > 0 ? `• חריגה תקציבית של ₪${Math.round(budgetVariance).toLocaleString("he-IL")}` : `• התקציב בשליטה`,
+    ``,
+    `**המלצות להמשך**`,
+    `• להמשיך לשפר את זמני הסגירה של קריאות האחזקה`,
+    `• לסגור את כל ליקויי הבטיחות הפתוחים לפני הביקורת הבאה`,
+    `• לעקוב אחר ביצוע התקציב ולהגיש דוח חריגות`,
+  ].join("\n");
 }
 
 // ─── Trend analysis ───────────────────────────────────────────────────────────

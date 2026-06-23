@@ -15,13 +15,90 @@ import { isEmailReady } from "./email.js";
 import { createReport, getDashboardText, scheduleReports, REPORT_TYPES } from "./nursingHomeReporter.js";
 import { performFullScan, processUnprocessedDocuments, getScanStatus } from "./nursingHomeScanner.js";
 import { isOneDriveReady } from "./onedrive.js";
+import { getMaintenanceStats, getBudgetSummary, getProjects, getSafetyStats, getReportHistory, insertMaintenanceRecord } from "./database.js";
 import { readFileSync, existsSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 app.use(express.json());
+app.use(express.static(join(__dirname, "..", "public")));
 
 const PORT = process.env.PORT || 3000;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+
+// ─── Dashboard HTML ───────────────────────────────────────────────────────────
+app.get("/dashboard", (_req, res) => {
+  res.sendFile(join(__dirname, "..", "public", "dashboard.html"));
+});
+
+// ─── Dashboard API ────────────────────────────────────────────────────────────
+app.get("/api/dashboard", (req, res) => {
+  try {
+    const year   = parseInt(req.query.year)   || new Date().getFullYear();
+    const period = req.query.period           || "Q1";
+    const quarterMap = { Q1: 1, Q2: 2, Q3: 3, Q4: 4, H1: null, H2: null, annual: null };
+    const quarter = quarterMap[period] ?? null;
+
+    const maintenance   = getMaintenanceStats(year, quarter);
+    const budget        = getBudgetSummary(year, quarter);
+    const projects      = getProjects(year);
+    const safety        = getSafetyStats(year, quarter);
+    const recentReports = getReportHistory(8);
+
+    res.json({
+      year, period,
+      maintenance,
+      budget,
+      projects,
+      safety,
+      recentReports,
+      oneDriveReady:   isOneDriveReady(),
+      institutionName: process.env.NURSING_HOME_NAME ?? "בית האבות",
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Scan API ─────────────────────────────────────────────────────────────────
+app.post("/api/scan", async (_req, res) => {
+  try {
+    const scanResult = await performFullScan();
+    const procResult = await processUnprocessedDocuments(15);
+    res.json({ ...scanResult, processed: procResult.processed });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Generate report API ──────────────────────────────────────────────────────
+app.post("/api/report", async (req, res) => {
+  try {
+    const period = (req.query.period || "Q1").toUpperCase();
+    const year   = parseInt(req.query.year) || new Date().getFullYear();
+    if (!REPORT_TYPES.includes(period)) {
+      return res.status(400).json({ error: `סוג דוח לא מוכר: ${period}` });
+    }
+    const result = await createReport(period, year);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Visitt webhook ───────────────────────────────────────────────────────────
+app.post("/webhook/visitt", async (req, res) => {
+  res.sendStatus(200);
+  try {
+    const payload = req.body;
+    await handleVisittWebhook(payload);
+  } catch (err) {
+    console.error("⚠️ Visitt webhook error:", err.message);
+  }
+});
 
 // ─── Webhook verification ─────────────────────────────────────────────────────
 app.get("/webhook", (req, res) => {
@@ -467,5 +544,60 @@ const HELP_TEXT = `🤖 *פקודות:*
 • PDF, Word, Excel → אנתח ושמור
 • תמונה → זהה ושמור
 • הודעה קולית → תמלל`;
+
+// ─── Visitt webhook handler ───────────────────────────────────────────────────
+async function handleVisittWebhook(payload) {
+  // Visitt sends maintenance call data — extract and store
+  if (!payload || typeof payload !== "object") return;
+
+  // Handle various Visitt payload formats
+  const call = payload.call ?? payload.workOrder ?? payload.ticket ?? payload;
+
+  const record = {
+    callNumber:         String(call.id ?? call.callId ?? call.workOrderId ?? ""),
+    dateOpened:         call.createdAt ?? call.openDate ?? call.date ?? null,
+    dateClosed:         call.closedAt ?? call.closeDate ?? null,
+    department:         call.department ?? call.area ?? call.zone ?? null,
+    location:           call.location ?? call.room ?? call.floor ?? null,
+    description:        call.description ?? call.title ?? call.subject ?? null,
+    worker:             call.assignee?.name ?? call.worker ?? call.techName ?? null,
+    status:             normalizeVisittStatus(call.status),
+    resolutionTimeHours: calculateResolutionTime(call.createdAt, call.closedAt),
+    category:           call.category ?? call.type ?? "אחזקה",
+    documentId:         null,
+  };
+
+  insertMaintenanceRecord(record);
+  console.log(`🔧 Visitt: קריאה ${record.callNumber || "חדשה"} — ${record.description?.slice(0, 60)}`);
+
+  // Notify owner via WhatsApp if configured
+  const profile = (await import("./memory.js")).getProfile();
+  if (profile.ownerPhone && sendMessage) {
+    const statusEmoji = record.status === "closed" ? "✅" : "🔧";
+    await sendMessage(profile.ownerPhone,
+      `${statusEmoji} *Visitt — קריאה ${record.status === "open" ? "חדשה" : "עודכנה"}*\n\n` +
+      `📋 ${record.description?.slice(0, 100) ?? "—"}\n` +
+      `📍 ${record.location ?? "—"} | ${record.department ?? "—"}\n` +
+      `👷 ${record.worker ?? "לא שויך"}\n` +
+      `🔢 #${record.callNumber || "—"}`
+    ).catch(() => {});
+  }
+}
+
+function normalizeVisittStatus(status) {
+  if (!status) return "open";
+  const s = String(status).toLowerCase();
+  if (s.includes("clos") || s.includes("done") || s.includes("סגור") || s.includes("הושלם")) return "closed";
+  if (s.includes("progress") || s.includes("assigned") || s.includes("בטיפול")) return "in_progress";
+  return "open";
+}
+
+function calculateResolutionTime(openDate, closeDate) {
+  if (!openDate || !closeDate) return null;
+  try {
+    const diff = new Date(closeDate) - new Date(openDate);
+    return diff > 0 ? diff / (1000 * 60 * 60) : null;
+  } catch { return null; }
+}
 
 start();
