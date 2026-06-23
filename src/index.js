@@ -314,7 +314,7 @@ async function buildMorningBriefing() {
 }
 
 function validateEnv() {
-  const required = ["GEMINI_API_KEY", "WHATSAPP_TOKEN", "WHATSAPP_PHONE_NUMBER_ID", "VERIFY_TOKEN"];
+  const required = ["GROQ_API_KEY", "WHATSAPP_TOKEN", "WHATSAPP_PHONE_NUMBER_ID", "VERIFY_TOKEN"];
   const missing = required.filter((k) => !process.env[k]);
   if (missing.length > 0) {
     console.error(`\n❌ חסרים: ${missing.join(", ")}\n   הפעל: npm run setup\n`);
