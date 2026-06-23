@@ -1,0 +1,28 @@
+{
+  "name": "whatsapp-ai-agent",
+  "version": "1.0.0",
+  "description": "Personal AI agent for WhatsApp using Claude AI",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "setup": "node scripts/setup-web.js",
+    "auth-google": "node scripts/auth-google.js",
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "*",
+    "@ngrok/ngrok": "^1.7.0",
+    "axios": "^1.7.0",
+    "dotenv": "^16.4.0",
+    "express": "^4.19.0",
+    "googleapis": "^173.0.0",
+    "node-cron": "^4.5.0",
+    "nodemailer": "^9.0.1",
+    "openai": "^6.44.0",
+    "readline": "^1.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
