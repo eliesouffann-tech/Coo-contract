@@ -10,7 +10,8 @@ import {
 } from "./memory.js";
 import { initScheduler, getUpcoming } from "./scheduler.js";
 import { downloadWhatsAppMedia, buildMediaContent, summarizeMedia, transcribeAudio, isTranscriptionReady } from "./media.js";
-import { saveTokenFromCode, getAuthUrl, isCalendarReady } from "./calendar.js";
+import { saveTokenFromCode, getAuthUrl, isCalendarReady, getUpcomingEventsText } from "./calendar.js";
+import { isEmailReady } from "./email.js";
 
 const app = express();
 app.use(express.json());
@@ -108,6 +109,30 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
+    if (text === "/email") {
+      if (!isEmailReady()) {
+        await sendMessage(from,
+          "📧 שליחת מיילים לא מוגדרת.\n\nהוסף ל-.env:\n" +
+          "`EMAIL_ADDRESS=your@gmail.com`\n" +
+          "`EMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx`\n\n" +
+          "לקבלת App Password:\nGmail → ⚙️ → Security → App Passwords"
+        );
+      } else {
+        await sendMessage(from, `📧 מייל מוגדר: ${process.env.EMAIL_ADDRESS}\nאמור לי 'שלח מייל ל...' ואפעל.`);
+      }
+      return;
+    }
+
+    if (text === "/briefing") {
+      const briefing = await buildMorningBriefing();
+      if (briefing) {
+        await sendMessage(from, briefing.text);
+      } else {
+        await sendMessage(from, "⚠️ הגדר פרופיל קודם: /profile");
+      }
+      return;
+    }
+
     if (text.startsWith("/profile")) {
       const args = text.slice("/profile".length).trim();
       const saved = saveProfile({ ...profile, ownerPhone: from });
@@ -177,7 +202,7 @@ app.get("/health", (_req, res) =>
 // ─── Startup ──────────────────────────────────────────────────────────────────
 async function start() {
   validateEnv();
-  initScheduler(sendMessage);
+  initScheduler(sendMessage, buildMorningBriefing);
 
   app.listen(PORT, () => console.log(`\n🚀 שרת רץ על פורט ${PORT}`));
 
@@ -240,6 +265,40 @@ function printInstructions(webhookUrl) {
 `);
 }
 
+async function buildMorningBriefing() {
+  const profile = getProfile();
+  if (!profile.ownerPhone) return null;
+
+  const today = new Date().toLocaleDateString("he-IL", {
+    weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Jerusalem",
+  });
+
+  const tasks = getTasksText("pending");
+  const reminders = getUpcoming(profile.ownerPhone).slice(0, 5);
+
+  let calSection = "";
+  if (isCalendarReady()) {
+    try {
+      calSection = `\n📅 *לוח זמנים היום:*\n${await getUpcomingEventsText()}\n`;
+    } catch { /* skip */ }
+  }
+
+  const reminderSection = reminders.length
+    ? `\n🔔 *תזכורות להיום:*\n${reminders
+        .map((r) => `• ${r.message} — ${new Date(r.datetime).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" })}`)
+        .join("\n")}`
+    : "";
+
+  const text =
+    `☀️ *בוקר טוב${profile.name ? `, ${profile.name.split(" ")[0]}` : ""}!*\n` +
+    `📅 ${today}\n` +
+    calSection +
+    `\n✅ *משימות פתוחות:*\n${tasks}` +
+    reminderSection;
+
+  return { phone: profile.ownerPhone, text };
+}
+
 function validateEnv() {
   const required = ["ANTHROPIC_API_KEY", "WHATSAPP_TOKEN", "WHATSAPP_PHONE_NUMBER_ID", "VERIFY_TOKEN"];
   const missing = required.filter((k) => !process.env[k]);
@@ -251,20 +310,23 @@ function validateEnv() {
 
 const HELP_TEXT = `🤖 *פקודות:*
 
-/profile — הגדר את הפרופיל שלך
-/notes — הצג זיכרון שמור
-/tasks — הצג משימות
-/reminders — הצג תזכורות
+/profile — הגדר פרופיל (שם, תפקיד, סגנון)
+/briefing — קבל סיכום יומי עכשיו
+/notes — זיכרון שמור
+/tasks — רשימת משימות
+/reminders — תזכורות פעילות
 /calendar — סטטוס Google Calendar
-/reset — נקה שיחה
-/help — עזרה
+/email — סטטוס שליחת מייל
+/reset — נקה היסטוריית שיחה
+/help — עזרה זו
 
-💬 *דוגמאות לשימוש:*
+💬 *דוגמאות:*
+• "מה מזג האוויר בתל אביב היום?" — חיפוש ברשת
 • "תזכיר לי מחר ב-9 לצלצל לדוד"
-• "תוסיף לי משימה: לשלוח הצעת מחיר עד יום שישי"
+• "תוסיף משימה: לשלוח הצעת מחיר"
 • "תקבע פגישה עם רון ביום שלישי ב-14:00"
-• "תזכור שהסיסמה של הנהלת חשבונות היא..."
-• שלח תמונה/PDF — אנתח אותו לבד
-• שלח הודעה קולית — אתמלל ואענה`;
+• "שלח מייל לרון@gmail.com — נושא: פגישה..."
+• שלח תמונה/PDF → אנתח
+• שלח הודעה קולית → מתמלל ועונה`;
 
 start();

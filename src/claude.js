@@ -5,8 +5,17 @@ import {
 } from "./memory.js";
 import { TOOLS, executeTool } from "./tools.js";
 import { isCalendarReady, getUpcomingEventsText } from "./calendar.js";
+import { isEmailReady } from "./email.js";
 
 const client = new Anthropic();
+
+// Server-side tools hosted by Anthropic — no client execution needed
+const SERVER_TOOLS = [
+  { type: "web_search_20260209", name: "web_search" },
+  { type: "web_fetch_20260209",  name: "web_fetch"  },
+];
+
+const SERVER_TOOL_NAMES = new Set(SERVER_TOOLS.map((t) => t.name));
 
 async function buildSystemPrompt(fromPhone) {
   const profile = getProfile();
@@ -15,19 +24,15 @@ async function buildSystemPrompt(fromPhone) {
   const tasks = getTasksText("pending");
   const now = new Date().toLocaleString("he-IL", {
     timeZone: "Asia/Jerusalem",
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    hour: "2-digit",
-    minute: "2-digit",
+    weekday: "long", day: "numeric", month: "long",
+    hour: "2-digit", minute: "2-digit",
   });
 
   let calendarSection = "";
   if (isCalendarReady()) {
     try {
-      const events = await getUpcomingEventsText();
-      calendarSection = `\n📅 לוח זמנים היום:\n${events}`;
-    } catch { /* ignore */ }
+      calendarSection = `\n📅 לוח זמנים היום:\n${await getUpcomingEventsText()}`;
+    } catch { /* calendar error — skip */ }
   }
 
   const isOwner = profile.ownerPhone && fromPhone === profile.ownerPhone;
@@ -37,18 +42,18 @@ async function buildSystemPrompt(fromPhone) {
     if (isOwner) {
       identity = `אתה הסוכן האישי של ${profile.name}${profile.role ? ` (${profile.role})` : ""}.
 ${profile.name} עצמו מדבר איתך עכשיו.
-עזור לו בכל: ניתוח מסמכים, קביעת פגישות, תזכורות, כתיבת טקסטים, מחקר, חישובים — הכל.`;
+עזור לו בכל: ניתוח מסמכים, קביעת פגישות, תזכורות, כתיבת טקסטים, מחקר, חישובים, שליחת מיילים — הכל.`;
     } else {
       identity = `אתה ${profile.name}${profile.role ? `, ${profile.role}` : ""}.
-מישהו שלח הודעה ל-${profile.name}. ענה בדיוק כמוהו — באותו סגנון, אותה שפה, אותה אישיות.
+מישהו שלח הודעה ל-${profile.name}. ענה בדיוק כמוהו — אותו סגנון, אותה שפה, אותה אישיות.
 ${profile.style ? `הסגנון שלו: ${profile.style}` : ""}
-אל תזכיר שאתה AI. ענה בטבעיות כאילו אתה ${profile.name} עצמו.
-אם השאלה דורשת מידע שאין לך — ענה בצורה כללית או אמור שתחזור עם תשובה.`;
+אל תזכיר שאתה AI. ענה בטבעיות כאילו אתה ${profile.name} עצמו.`;
     }
   } else {
-    identity = `אתה סוכן AI אישי.
-💡 שלח /profile כדי להגדיר את הפרופיל שלך — ואז אענה לאנשים בשמך.`;
+    identity = `אתה סוכן AI אישי.\n💡 שלח /profile להגדרת הפרופיל.`;
   }
+
+  const emailStatus = isEmailReady() ? "" : "\n⚠️ שליחת מייל: הוסף EMAIL_ADDRESS ו-EMAIL_APP_PASSWORD ל-.env";
 
   return `${identity}
 
@@ -61,13 +66,14 @@ ${notes}
 ${contacts}
 
 ✅ משימות פתוחות:
-${tasks}
+${tasks}${emailStatus}
 
 הנחיות:
 - ענה בשפה שפונים אליך בה
-- השתמש בכלים באופן יזום — "תזכיר לי" → set_reminder מיד, "תזכור ש" → save_to_memory מיד, "תקבע פגישה" → create_calendar_event
-- כשמישהו מציין את שמו → save_contact
-- הודעות WhatsApp — קצר, ברור, סעיפים קצרים עם אמוג'י`;
+- השתמש בכלים באופן יזום: "תזכיר לי" → set_reminder, "תזכור ש" → save_to_memory, "תקבע פגישה" → create_calendar_event, "שלח מייל" → send_email
+- לחיפוש מידע עדכני — השתמש ב-web_search
+- כשמישהו מציין שמו → save_contact
+- הודעות WhatsApp — קצר, ברור, אמוג'י לנוחות קריאה`;
 }
 
 export async function chat(fromPhone, userContent) {
@@ -90,7 +96,7 @@ export async function chat(fromPhone, userContent) {
       max_tokens: 4096,
       thinking: { type: "adaptive" },
       system: await buildSystemPrompt(fromPhone),
-      tools: TOOLS,
+      tools: [...SERVER_TOOLS, ...TOOLS],
       messages: working,
     });
 
@@ -98,17 +104,32 @@ export async function chat(fromPhone, userContent) {
 
     if (response.stop_reason === "tool_use") {
       const results = [];
+
       for (const block of response.content) {
-        if (block.type === "tool_use") {
-          console.log(`🔧 ${block.name}`, JSON.stringify(block.input).slice(0, 120));
-          const result = await executeTool(block.name, block.input);
+        if (block.type !== "tool_use") continue;
+
+        // Server-side tools (web_search, web_fetch) are executed by Anthropic —
+        // pass a placeholder result so the loop can continue
+        if (SERVER_TOOL_NAMES.has(block.name)) {
+          console.log(`🌐 ${block.name}`, JSON.stringify(block.input).slice(0, 100));
           results.push({
             type: "tool_result",
             tool_use_id: block.id,
-            content: JSON.stringify(result),
+            content: JSON.stringify({ status: "executed_server_side" }),
           });
+          continue;
         }
+
+        // User-defined tools
+        console.log(`🔧 ${block.name}`, JSON.stringify(block.input).slice(0, 120));
+        const result = await executeTool(block.name, block.input);
+        results.push({
+          type: "tool_result",
+          tool_use_id: block.id,
+          content: JSON.stringify(result),
+        });
       }
+
       working.push({ role: "user", content: results });
       continue;
     }
@@ -120,7 +141,7 @@ export async function chat(fromPhone, userContent) {
     break;
   }
 
-  // Persist text-only history (no thinking/tool blocks)
+  // Persist text-only history
   const userSummary = typeof userContent === "string" ? userContent : userContent.summary;
   history.push({ role: "user", content: userSummary });
   history.push({ role: "assistant", content: reply });

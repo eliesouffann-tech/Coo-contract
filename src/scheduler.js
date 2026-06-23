@@ -6,8 +6,9 @@ import { fileURLToPath } from "url";
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "../data");
 const FILE = join(DATA_DIR, "reminders.json");
 
-// sendMessage is injected at init to avoid circular imports
+// injected at init to avoid circular imports
 let _send;
+let _getBriefing; // async fn that returns the morning briefing text
 
 function ensureDir() {
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
@@ -44,15 +45,20 @@ export function getUpcoming(phone) {
     .sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
 }
 
-export function initScheduler(sendFn) {
+export function initScheduler(sendFn, getBriefingFn) {
   _send = sendFn;
+  _getBriefing = getBriefingFn;
 
-  // Fire any reminders that were missed while server was down
+  // Fire missed reminders immediately on startup
   fireOverdue();
 
-  // Check every minute
+  // Check reminders every minute
   cron.schedule("* * * * *", fireOverdue, { timezone: "Asia/Jerusalem" });
-  console.log("⏰ מערכת תזכורות פעילה");
+
+  // Morning briefing — every day at 8:00 AM (Israel time)
+  cron.schedule("0 8 * * *", fireMorningBriefing, { timezone: "Asia/Jerusalem" });
+
+  console.log("⏰ מערכת תזכורות + בריפינג בוקר פעילים");
 }
 
 async function fireOverdue() {
@@ -67,7 +73,7 @@ async function fireOverdue() {
         await _send(r.phone, `🔔 *תזכורת:* ${r.message}`);
         r.done = true;
         changed = true;
-        console.log(`🔔 תזכורת נשלחה ל-${r.phone}: ${r.message}`);
+        console.log(`🔔 תזכורת → ${r.phone}: ${r.message}`);
       } catch (err) {
         console.error("שגיאה בשליחת תזכורת:", err.message);
       }
@@ -75,4 +81,16 @@ async function fireOverdue() {
   }
 
   if (changed) writeAll(all);
+}
+
+async function fireMorningBriefing() {
+  try {
+    const briefing = await _getBriefing();
+    if (briefing) {
+      console.log("☀️ שולח בריפינג בוקר...");
+      await _send(briefing.phone, briefing.text);
+    }
+  } catch (err) {
+    console.error("שגיאה בבריפינג בוקר:", err.message);
+  }
 }

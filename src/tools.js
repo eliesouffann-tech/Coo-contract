@@ -7,6 +7,7 @@ import {
   addTask, completeTask, deleteTask, getTasksText,
 } from "./memory.js";
 import { createEvent, listEvents, deleteEvent, isCalendarReady } from "./calendar.js";
+import { sendEmail, isEmailReady } from "./email.js";
 
 export const TOOLS = [
   // ── Memory ──────────────────────────────────────────────────────────────────
@@ -173,6 +174,22 @@ export const TOOLS = [
     },
   },
 
+  // ── Email ─────────────────────────────────────────────────────────────────────
+  {
+    name: "send_email",
+    description: "שולח אימייל מכתובת האימייל של הבעלים. השתמש כשמבקשים לשלוח מייל.",
+    input_schema: {
+      type: "object",
+      properties: {
+        to: { type: "string", description: "כתובת אימייל של הנמען" },
+        subject: { type: "string", description: "נושא המייל" },
+        body: { type: "string", description: "גוף המייל" },
+        reply_to: { type: "string", description: "כתובת reply-to (אופציונלי)" },
+      },
+      required: ["to", "subject", "body"],
+    },
+  },
+
   // ── Profile ───────────────────────────────────────────────────────────────────
   {
     name: "update_profile",
@@ -274,6 +291,17 @@ export async function executeTool(name, input) {
     case "delete_calendar_event": {
       if (!isCalendarReady()) return { error: "Google Calendar לא מחובר" };
       return await deleteEvent(input.event_id);
+    }
+
+    // Email
+    case "send_email": {
+      if (!isEmailReady()) return { error: "אימייל לא מוגדר. הוסף EMAIL_ADDRESS ו-EMAIL_APP_PASSWORD ל-.env" };
+      return await sendEmail({
+        to: input.to,
+        subject: input.subject,
+        body: input.body,
+        replyTo: input.reply_to,
+      });
     }
 
     // Profile
