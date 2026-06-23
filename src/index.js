@@ -9,7 +9,7 @@ import {
   getAllNotesText, getTasksText, getContactName, saveContact,
 } from "./memory.js";
 import { initScheduler, getUpcoming } from "./scheduler.js";
-import { downloadWhatsAppMedia, buildMediaContent, summarizeMedia, transcribeAudio, isTranscriptionReady } from "./media.js";
+import { downloadWhatsAppMedia, parsePdfText, summarizeMedia, transcribeAudio, isTranscriptionReady } from "./media.js";
 import { saveTokenFromCode, getAuthUrl, isCalendarReady, getUpcomingEventsText } from "./calendar.js";
 import { isEmailReady } from "./email.js";
 
@@ -155,9 +155,21 @@ app.post("/webhook", async (req, res) => {
     } else if (type === "image" || type === "document") {
       await sendMessage(from, "⏳ קורא את הקובץ...");
       const { buffer, mimeType } = await downloadWhatsAppMedia(msg.mediaId);
-      const blocks = buildMediaContent(buffer, mimeType, msg.caption);
-      const summary = summarizeMedia(mimeType, msg.caption);
-      claudeInput = { blocks, summary };
+
+      if (mimeType === "application/pdf") {
+        const pdfText = await parsePdfText(buffer);
+        const caption = msg.caption ? `\n${msg.caption}` : "";
+        claudeInput = `[מסמך PDF${caption}]\n\n${pdfText}`;
+      } else if (mimeType.startsWith("image/")) {
+        claudeInput = {
+          imageBase64: buffer.toString("base64"),
+          mimeType,
+          caption: msg.caption ?? "",
+          summary: summarizeMedia(mimeType, msg.caption),
+        };
+      } else {
+        claudeInput = `[קובץ מסוג ${mimeType}${msg.caption ? `: ${msg.caption}` : ""}]`;
+      }
     } else if (type === "audio") {
       if (!isTranscriptionReady()) {
         await sendMessage(from, "⚠️ להפעלת הודעות קוליות הוסף OPENAI_API_KEY ל-.env");

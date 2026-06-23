@@ -14,6 +14,7 @@ const groq = new OpenAI({
 });
 
 const MODEL = "llama-3.3-70b-versatile";
+const VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 
 const WEB_SEARCH_TOOL = {
   type: "function",
@@ -105,7 +106,29 @@ export async function chat(fromPhone, userContent) {
   const systemPrompt = await buildSystemPrompt(fromPhone);
 
   const groqTools = [...TOOLS.map(toGroqTool), WEB_SEARCH_TOOL];
-  const userText = typeof userContent === "string" ? userContent : userContent.summary;
+
+  // Handle image input: describe with vision model first, then pass description to main model
+  let userText;
+  if (userContent?.imageBase64) {
+    try {
+      const visionContent = [
+        { type: "image_url", image_url: { url: `data:${userContent.mimeType};base64,${userContent.imageBase64}` } },
+        { type: "text", text: userContent.caption || "תאר ונתח את התמונה בפירוט, בעברית." },
+      ];
+      const visionResp = await groq.chat.completions.create({
+        model: VISION_MODEL,
+        messages: [{ role: "user", content: visionContent }],
+        max_tokens: 768,
+      });
+      const description = visionResp.choices[0].message.content ?? "";
+      userText = `[תמונה]\n${description}${userContent.caption ? `\n\nהמשתמש כתב: ${userContent.caption}` : ""}`;
+    } catch (err) {
+      console.error("⚠️ vision error:", err.message?.slice(0, 100));
+      userText = userContent.summary;
+    }
+  } else {
+    userText = typeof userContent === "string" ? userContent : userContent.summary;
+  }
 
   const messages = [
     { role: "system", content: systemPrompt },
