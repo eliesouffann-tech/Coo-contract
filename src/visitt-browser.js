@@ -1,12 +1,23 @@
 /**
  * Visitt browser-based integration using Playwright.
  * Used when VISITT_EMAIL + VISITT_PASSWORD are set (no Partner API token needed).
- * Logs in to the Visitt web app, intercepts the internal auth token,
- * then uses it to call Visitt's internal API directly.
+ * Playwright is imported lazily so the server starts even if no browser is installed.
  */
-import { chromium } from "playwright";
 import path from "path";
 import fs from "fs";
+
+let _chromium = null;
+async function getChromium() {
+  if (!_chromium) {
+    try {
+      const pw = await import("playwright");
+      _chromium = pw.chromium;
+    } catch {
+      throw new Error("Playwright לא מותקן. הרץ: npm install playwright && npx playwright install chromium");
+    }
+  }
+  return _chromium;
+}
 
 const SESSION_FILE = path.resolve("data/visitt-session.json");
 const TOKEN_FILE = path.resolve("data/visitt-token.json");
@@ -16,8 +27,41 @@ const TOKEN_TTL = 55 * 60 * 1000; // 55 minutes
 let _mem = null; // { token, apiBase, expiresAt }
 
 // ─── Public readiness check ───────────────────────────────────────────────────
+// Browser mode only works if Chrome binary is reachable (not on cloud deploys without Chrome)
+let _browserChecked = false;
+let _browserAvailable = false;
+
+async function checkBrowserAvailable() {
+  if (_browserChecked) return _browserAvailable;
+  _browserChecked = true;
+  try {
+    const chromium = await getChromium();
+    const executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH
+      ?? (process.env.PLAYWRIGHT_BROWSERS_PATH ? `${process.env.PLAYWRIGHT_BROWSERS_PATH}/chromium` : null);
+    if (executablePath) {
+      _browserAvailable = fs.existsSync(executablePath);
+    } else {
+      // Try launching with a very short timeout to see if it works
+      const browser = await Promise.race([
+        chromium.launch({ headless: true, args: ["--no-sandbox"] }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 5000)),
+      ]);
+      await browser.close();
+      _browserAvailable = true;
+    }
+  } catch {
+    _browserAvailable = false;
+  }
+  return _browserAvailable;
+}
+
 export function isBrowserVisittReady() {
   return !!(process.env.VISITT_EMAIL && process.env.VISITT_PASSWORD);
+}
+
+export async function isBrowserVisittActuallyReady() {
+  if (!isBrowserVisittReady()) return false;
+  return checkBrowserAvailable();
 }
 
 // ─── Token management ─────────────────────────────────────────────────────────
@@ -51,8 +95,8 @@ function clearCache() {
 }
 
 // ─── Browser launcher ─────────────────────────────────────────────────────────
-function launchChromium() {
-  // Use env-specified path (Claude dev env) or let Playwright find its own install
+async function launchChromium() {
+  const chromium = await getChromium();
   const executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH
     ?? (process.env.PLAYWRIGHT_BROWSERS_PATH ? `${process.env.PLAYWRIGHT_BROWSERS_PATH}/chromium` : undefined);
   return chromium.launch({
