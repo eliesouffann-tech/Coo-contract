@@ -431,7 +431,7 @@ async function start() {
   if (isCalendarReady()) console.log("📅 Google Calendar מחובר ✅");
   if (isEmailReady())    console.log("📧 שליחת מייל מוגדרת ✅");
   if (isN8nReady())      console.log(`🔀 n8n מחובר ✅  (${process.env.N8N_WEBHOOK_URL})`);
-  if (isVisittReady())   console.log("🔧 Visitt מחובר ✅  (Partner API)");
+  if (isVisittReady())   console.log(`🔧 Visitt מחובר ✅  (${process.env.VISITT_API_TOKEN ? "Partner API" : "Browser / " + process.env.VISITT_EMAIL})`);
   console.log(`🔌 REST API זמין ב: /api`);
   console.log(`📊 דאשבורד זמין ב: /dashboard`);
 }
