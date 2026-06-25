@@ -5,10 +5,12 @@ const BASE_URL = "https://graph.facebook.com/v19.0";
 // Parse any incoming WhatsApp message into a unified format
 export function parseIncomingMessage(body) {
   try {
-    const message = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+    const value = body?.entry?.[0]?.changes?.[0]?.value;
+    const message = value?.messages?.[0];
     if (!message) return null;
 
-    const base = { from: message.from, messageId: message.id, type: message.type };
+    const senderName = value?.contacts?.[0]?.profile?.name ?? null;
+    const base = { from: message.from, messageId: message.id, type: message.type, senderName };
 
     switch (message.type) {
       case "text":

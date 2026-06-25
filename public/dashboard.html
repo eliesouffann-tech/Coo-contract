@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>מנהל לשכה AI — דאשבורד</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #0f172a; color: #e2e8f0; direction: rtl; min-height: 100vh; }
+  header { background: #1e293b; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #334155; }
+  header h1 { font-size: 1.2rem; color: #f8fafc; }
+  header .status { display: flex; gap: 8px; align-items: center; font-size: 0.8rem; color: #94a3b8; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; display: inline-block; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; padding: 24px; }
+  .card { background: #1e293b; border-radius: 12px; padding: 20px; border: 1px solid #334155; }
+  .card h3 { font-size: 0.8rem; color: #94a3b8; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .card .value { font-size: 2rem; font-weight: 700; color: #f8fafc; }
+  .card .sub { font-size: 0.8rem; color: #64748b; margin-top: 4px; }
+  .card.red .value { color: #f87171; }
+  .card.orange .value { color: #fb923c; }
+  .card.green .value { color: #4ade80; }
+  .card.yellow .value { color: #facc15; }
+  .section { padding: 0 24px 24px; }
+  .section h2 { font-size: 1rem; color: #94a3b8; margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; background: #1e293b; border-radius: 12px; overflow: hidden; }
+  th { background: #334155; padding: 10px 14px; text-align: right; font-size: 0.8rem; color: #94a3b8; font-weight: 600; }
+  td { padding: 10px 14px; border-top: 1px solid #334155; font-size: 0.85rem; }
+  tr:hover td { background: #273549; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 0.7rem; font-weight: 600; }
+  .badge.red { background: #7f1d1d; color: #fca5a5; }
+  .badge.orange { background: #7c2d12; color: #fdba74; }
+  .badge.yellow { background: #713f12; color: #fde047; }
+  .badge.green { background: #14532d; color: #86efac; }
+  .badge.gray { background: #374151; color: #9ca3af; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 0 24px 24px; }
+  .list-item { padding: 8px 0; border-bottom: 1px solid #334155; font-size: 0.85rem; display: flex; justify-content: space-between; }
+  .list-item:last-child { border-bottom: none; }
+  .refresh-btn { background: #3b82f6; border: none; color: white; padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 0.8rem; }
+  .refresh-btn:hover { background: #2563eb; }
+  .loading { color: #64748b; font-style: italic; font-size: 0.8rem; }
+  .pattern-item { padding: 8px 0; border-bottom: 1px solid #334155; }
+  .pattern-item:last-child { border-bottom: none; }
+  .pattern-item .desc { font-size: 0.85rem; }
+  .pattern-item .rec { font-size: 0.75rem; color: #94a3b8; margin-top: 3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🏢 מנהל לשכה AI — דאשבורד ניהולי</h1>
+  <div class="status">
+    <span class="dot" id="status-dot"></span>
+    <span id="status-text">מתחבר...</span>
+    <span id="last-update" style="margin-right:16px"></span>
+    <button class="refresh-btn" onclick="loadAll()">🔄 רענן</button>
+  </div>
+</header>
+
+<!-- KPI Cards -->
+<div class="grid" id="kpi-grid">
+  <div class="card"><h3>טוען...</h3><div class="value">—</div></div>
+</div>
+
+<!-- Tasks & Priority -->
+<div class="two-col">
+  <div>
+    <div class="section" style="padding:0 0 12px">
+      <h2>⚠️ משימות דחופות</h2>
+    </div>
+    <table id="tasks-table">
+      <thead><tr><th>משימה</th><th>עדיפות</th><th>ימים פתוחה</th></tr></thead>
+      <tbody><tr><td colspan="3" class="loading" style="padding:12px">טוען...</td></tr></tbody>
+    </table>
+  </div>
+  <div>
+    <div class="section" style="padding:0 0 12px">
+      <h2>👥 דירוג עובדים</h2>
+    </div>
+    <table id="employees-table">
+      <thead><tr><th>עובד</th><th>תפקיד</th><th>ציון</th></tr></thead>
+      <tbody><tr><td colspan="3" class="loading" style="padding:12px">טוען...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Patterns & Projects -->
+<div class="two-col">
+  <div>
+    <div class="section" style="padding:0 0 12px">
+      <h2>🔍 דפוסים שזוהו</h2>
+    </div>
+    <div class="card" id="patterns-list" style="min-height:120px">
+      <span class="loading">טוען...</span>
+    </div>
+  </div>
+  <div>
+    <div class="section" style="padding:0 0 12px">
+      <h2>📁 פרויקטים פעילים</h2>
+    </div>
+    <div class="card" id="projects-list" style="min-height:120px">
+      <span class="loading">טוען...</span>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+
+function badge(level) {
+  const map = { 'קריטי': 'red', 'גבוה': 'orange', 'בינוני': 'yellow', 'נמוך': 'green' };
+  const cls = map[level] ?? 'gray';
+  return `<span class="badge ${cls}">${level ?? '—'}</span>`;
+}
+
+function scoreColor(s) {
+  if (s >= 80) return 'green';
+  if (s >= 60) return 'yellow';
+  if (s >= 40) return 'orange';
+  return 'red';
+}
+
+async function fetchJSON(path) {
+  const key = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('apiKey='));
+  const headers = {};
+  if (key) headers['x-api-key'] = key.split('=')[1];
+  const r = await fetch(API + path, { headers });
+  if (!r.ok) throw new Error(r.statusText);
+  return r.json();
+}
+
+async function loadKPIs() {
+  const [tasks, health] = await Promise.all([
+    fetchJSON('/api/tasks').catch(() => []),
+    fetchJSON('/health').catch(() => ({})),
+  ]);
+
+  const open = tasks.filter(t => !t.done);
+  const overdue = open.filter(t => t.dueDate && new Date(t.dueDate) < new Date());
+  const critical = open.filter(t => t.priority === 'קריטי');
+  const high = open.filter(t => t.priority === 'גבוה');
+  const closedToday = tasks.filter(t => {
+    if (!t.done || !t.completedAt) return false;
+    const d = new Date(t.completedAt);
+    const today = new Date(); today.setHours(0,0,0,0);
+    return d >= today;
+  });
+
+  document.getElementById('kpi-grid').innerHTML = `
+    <div class="card ${critical.length ? 'red' : 'green'}">
+      <h3>🔴 קריטי</h3>
+      <div class="value">${critical.length}</div>
+      <div class="sub">משימות קריטיות פתוחות</div>
+    </div>
+    <div class="card ${overdue.length > 3 ? 'orange' : overdue.length ? 'yellow' : 'green'}">
+      <h3>⚠️ באיחור</h3>
+      <div class="value">${overdue.length}</div>
+      <div class="sub">עברו תאריך יעד</div>
+    </div>
+    <div class="card">
+      <h3>📋 סה"כ פתוחות</h3>
+      <div class="value">${open.length}</div>
+      <div class="sub">מתוך ${tasks.length} סה"כ</div>
+    </div>
+    <div class="card green">
+      <h3>✅ נסגרו היום</h3>
+      <div class="value">${closedToday.length}</div>
+      <div class="sub">משימות שהושלמו</div>
+    </div>
+    <div class="card ${high.length > 5 ? 'orange' : ''}">
+      <h3>🟠 עדיפות גבוהה</h3>
+      <div class="value">${high.length}</div>
+      <div class="sub">דורשות טיפול מהיר</div>
+    </div>
+    <div class="card ${health.calendar ? 'green' : 'gray'}">
+      <h3>📅 לוח זמנים</h3>
+      <div class="value" style="font-size:1.2rem">${health.calendar ? '✅ מחובר' : '❌ לא מחובר'}</div>
+      <div class="sub">Google Calendar</div>
+    </div>
+  `;
+
+  document.getElementById('status-dot').style.background = '#22c55e';
+  document.getElementById('status-text').textContent = 'מחובר';
+  document.getElementById('last-update').textContent = 'עדכון: ' + new Date().toLocaleTimeString('he-IL');
+}
+
+async function loadTasks() {
+  const tasks = await fetchJSON('/api/tasks?filter=pending').catch(() => []);
+  const sorted = tasks
+    .filter(t => !t.done)
+    .sort((a, b) => (b.priorityScore ?? 0) - (a.priorityScore ?? 0))
+    .slice(0, 10);
+
+  const tbody = document.querySelector('#tasks-table tbody');
+  if (!sorted.length) { tbody.innerHTML = '<tr><td colspan="3" style="padding:12px;color:#64748b">אין משימות פתוחות 🎉</td></tr>'; return; }
+
+  tbody.innerHTML = sorted.map(t => {
+    const days = Math.ceil((Date.now() - new Date(t.createdAt)) / 86400000);
+    const daysStr = t.dueDate && new Date(t.dueDate) < new Date()
+      ? `<span style="color:#f87171">⚠️ ${Math.ceil((Date.now()-new Date(t.dueDate))/86400000)}d איחור</span>`
+      : `${days}d`;
+    return `<tr><td>${t.title.slice(0,55)}</td><td>${badge(t.priority)}</td><td>${daysStr}</td></tr>`;
+  }).join('');
+}
+
+async function loadEmployees() {
+  const resp = await fetchJSON('/api/contacts').catch(() => ({}));
+  // Try entities endpoint first (employees have ranking)
+  let employees = [];
+  try {
+    const r = await fetchJSON('/api/employee-ranking');
+    employees = r.ranking ?? [];
+  } catch {
+    employees = Object.entries(resp).map(([phone, c]) => ({ name: c.name, role: c.notes ?? '—', score: '—' }));
+  }
+
+  const tbody = document.querySelector('#employees-table tbody');
+  if (!employees.length) { tbody.innerHTML = '<tr><td colspan="3" style="padding:12px;color:#64748b">אין עובדים. הוסף ב-WhatsApp: "הוסף עובד"</td></tr>'; return; }
+
+  tbody.innerHTML = employees.slice(0, 8).map(e => {
+    const sc = typeof e.score === 'number' ? e.score : null;
+    const scoreHtml = sc != null ? `<span class="badge ${scoreColor(sc)}">${sc}</span>` : '<span class="badge gray">—</span>';
+    return `<tr><td>${e.name}</td><td>${e.role ?? '—'}</td><td>${scoreHtml}</td></tr>`;
+  }).join('');
+}
+
+async function loadPatterns() {
+  const el = document.getElementById('patterns-list');
+  try {
+    const resp = await fetchJSON('/api/analytics/patterns');
+    const patterns = resp.patterns ?? [];
+    if (!patterns.length) { el.innerHTML = '<div style="color:#64748b;font-size:0.85rem">לא זוהו דפוסים חוזרים.</div>'; return; }
+    el.innerHTML = patterns.map(p => `
+      <div class="pattern-item">
+        <div class="desc">${p.description}</div>
+        ${p.recommendation ? `<div class="rec">💡 ${p.recommendation}</div>` : ''}
+      </div>
+    `).join('');
+  } catch {
+    el.innerHTML = '<div style="color:#64748b;font-size:0.85rem">לא זמין.</div>';
+  }
+}
+
+async function loadProjects() {
+  const el = document.getElementById('projects-list');
+  try {
+    const resp = await fetchJSON('/api/projects');
+    const projects = resp.projects ?? [];
+    if (!projects.length) { el.innerHTML = '<div style="color:#64748b;font-size:0.85rem">אין פרויקטים. צור ב-WhatsApp: "פרויקט חדש: שם"</div>'; return; }
+    el.innerHTML = projects.map(p => `
+      <div class="list-item">
+        <span><strong>${p.name}</strong><br><small style="color:#94a3b8">${p.lastUpdate?.slice(0,40) ?? '—'}</small></span>
+        <span class="badge ${p.status === 'פעיל' ? 'green' : p.status === 'מושהה' ? 'orange' : 'gray'}">${p.status}</span>
+      </div>
+    `).join('');
+  } catch {
+    el.innerHTML = '<div style="color:#64748b;font-size:0.85rem">לא זמין.</div>';
+  }
+}
+
+async function loadAll() {
+  document.getElementById('status-dot').style.background = '#facc15';
+  document.getElementById('status-text').textContent = 'מתרענן...';
+  await Promise.allSettled([loadKPIs(), loadTasks(), loadEmployees(), loadPatterns(), loadProjects()]);
+}
+
+// Auto-refresh every 60 seconds
+loadAll();
+setInterval(loadAll, 60000);
+</script>
+</body>
+</html>

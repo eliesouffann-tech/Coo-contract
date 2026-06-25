@@ -14,6 +14,10 @@ import { saveTokenFromCode, getAuthUrl, isCalendarReady, getUpcomingEventsText }
 import { isEmailReady } from "./email.js";
 import { isN8nReady } from "./n8n.js";
 import { apiRouter } from "./api.js";
+import { logMessage, saveContact as saveEntityContact } from "./entities.js";
+import { shouldExtractTask, extractTaskFromMessage } from "./extractor.js";
+import { generateDailyReport, generateWeeklyReport, generateAuditReport } from "./report.js";
+import { addTask } from "./memory.js";
 
 const app = express();
 app.use(express.json());
@@ -59,12 +63,27 @@ app.post("/webhook", async (req, res) => {
   const msg = parseIncomingMessage(req.body);
   if (!msg) return;
 
-  const { from, messageId, type } = msg;
+  const { from, messageId, type, senderName: waName } = msg;
   await markAsRead(messageId);
 
   const profile = getProfile();
   const isOwner = profile.ownerPhone && from === profile.ownerPhone;
-  const senderName = getContactName(from) ?? from;
+  const senderName = getContactName(from) ?? waName ?? from;
+
+  // Log every message for analytics & history
+  if (type === "text") {
+    logMessage({ phone: from, name: senderName, text: msg.text, type: "text" });
+  }
+
+  // Auto-extract tasks from incoming text (non-owner messages, or owner if keyword matches)
+  if (type === "text" && !msg.text.startsWith("/")) {
+    const extracted = extractTaskFromMessage(msg.text, senderName, from);
+    if (extracted && !isOwner) {
+      // Auto-create the task silently
+      const task = addTask({ title: extracted.title.slice(0, 120), notes: `מקור: ${senderName} | עדיפות: ${extracted.priority}` });
+      console.log(`📋 משימה אוטומטית: [${extracted.priority}] ${extracted.title.slice(0, 60)}`);
+    }
+  }
 
   // ── Special commands (owner only, text) ──────────────────────────────────
   if (type === "text") {
@@ -153,12 +172,49 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
-    if (textLower === "/briefing") {
-      const briefing = await buildMorningBriefing();
-      if (briefing) {
-        await sendMessage(from, briefing.text);
+    if (textLower === "/briefing" || textLower === "/report") {
+      const report = generateDailyReport();
+      await sendMessage(from, report);
+      return;
+    }
+
+    if (textLower === "/weekly") {
+      const report = generateWeeklyReport();
+      await sendMessage(from, report);
+      return;
+    }
+
+    if (textLower.startsWith("/audit")) {
+      const topic = text.slice("/audit".length).trim() || "כללי";
+      const report = generateAuditReport(topic);
+      await sendMessage(from, report);
+      return;
+    }
+
+    if (textLower === "/employees") {
+      const { getEmployeeRanking } = await import("./entities.js");
+      const ranking = getEmployeeRanking();
+      if (!ranking.length) {
+        await sendMessage(from, "👥 אין עובדים במערכת.\nהוסף: 'שמור עובד: שם, תפקיד, מחלקה'");
       } else {
-        await sendMessage(from, "⚠️ הגדר פרופיל קודם: /profile");
+        const lines = ranking.map(e =>
+          `${e.rank}. *${e.name}* (${e.role})\n   ציון: ${e.score}/100 | ✅${e.tasksCompleted}/${e.tasksAssigned} | ⚠️${e.tasksOverdue}`
+        );
+        await sendMessage(from, `👥 *דירוג עובדים:*\n\n${lines.join("\n\n")}`);
+      }
+      return;
+    }
+
+    if (textLower === "/projects") {
+      const { getProjects } = await import("./entities.js");
+      const ps = Object.values(getProjects());
+      if (!ps.length) {
+        await sendMessage(from, "📁 אין פרויקטים.\nצור: 'פרויקט חדש: שם הפרויקט'");
+      } else {
+        const lines = ps.map(p =>
+          `• *${p.name}* — ${p.status}\n  מנהל: ${p.owner || "—"} | עדכון: ${p.updates?.slice(-1)[0]?.update?.slice(0, 50) ?? "אין"}`
+        );
+        await sendMessage(from, `📁 *פרויקטים:*\n\n${lines.join("\n\n")}`);
       }
       return;
     }
@@ -243,6 +299,9 @@ app.post("/webhook", async (req, res) => {
 app.get("/health", (_req, res) =>
   res.json({ status: "ok", calendar: isCalendarReady(), email: isEmailReady(), n8n: isN8nReady(), port: PORT })
 );
+
+app.use(express.static("public"));
+app.get("/dashboard", (_req, res) => res.sendFile("dashboard.html", { root: "public" }));
 
 // ─── Startup ──────────────────────────────────────────────────────────────────
 async function start() {
@@ -333,32 +392,22 @@ async function buildMorningBriefing() {
   const profile = getProfile();
   if (!profile.ownerPhone) return null;
 
-  const today = new Date().toLocaleDateString("he-IL", {
-    weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Jerusalem",
-  });
+  let text = generateDailyReport();
 
-  const tasks = getTasksText("pending");
-  const reminders = getUpcoming(profile.ownerPhone).slice(0, 5);
-
-  let calSection = "";
+  // Append calendar if available
   if (isCalendarReady()) {
     try {
-      calSection = `\n📅 *לוח זמנים היום:*\n${await getUpcomingEventsText()}\n`;
+      text += `\n\n📅 *לוח זמנים היום:*\n${await getUpcomingEventsText()}`;
     } catch { /* skip */ }
   }
 
-  const reminderSection = reminders.length
-    ? `\n🔔 *תזכורות להיום:*\n${reminders
-        .map((r) => `• ${r.message} — ${new Date(r.datetime).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" })}`)
-        .join("\n")}`
-    : "";
-
-  const text =
-    `☀️ *בוקר טוב${profile.name ? `, ${profile.name.split(" ")[0]}` : ""}!*\n` +
-    `📅 ${today}\n` +
-    calSection +
-    `\n✅ *משימות פתוחות:*\n${tasks}` +
-    reminderSection;
+  // Append reminders
+  const reminders = getUpcoming(profile.ownerPhone).slice(0, 5);
+  if (reminders.length) {
+    text += `\n\n🔔 *תזכורות:*\n` + reminders
+      .map(r => `• ${r.message} — ${new Date(r.datetime).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" })}`)
+      .join("\n");
+  }
 
   return { phone: profile.ownerPhone, text };
 }
@@ -372,26 +421,36 @@ function validateEnv() {
   }
 }
 
-const HELP_TEXT = `🤖 *פקודות:*
+const HELP_TEXT = `🏢 *מנהל לשכה AI — פקודות:*
 
-/profile — הגדר פרופיל (שם, תפקיד, סגנון)
-/briefing — קבל סיכום יומי עכשיו
-/notes — זיכרון שמור
-/tasks — רשימת משימות
+*📊 דוחות:*
+/report — דוח יומי (משימות, קריטיות, איחורים)
+/weekly — דוח שבועי + KPIs + דירוג עובדים
+/audit [נושא] — תיק ביקורת (בריאות/בטיחות/כיבוי אש)
+
+*👥 ניהול:*
+/employees — דירוג ביצועי עובדים
+/projects — סטטוס פרויקטים
+/tasks — כל המשימות הפתוחות
 /reminders — תזכורות פעילות
-/calendar — סטטוס Google Calendar
-/email — סטטוס שליחת מייל
-/n8n — סטטוס אינטגרציית n8n
-/reset — נקה היסטוריית שיחה
-/help — עזרה זו
 
-💬 *דוגמאות:*
-• "מה מזג האוויר בתל אביב היום?" — חיפוש ברשת
-• "תזכיר לי מחר ב-9 לצלצל לדוד"
-• "תוסיף משימה: לשלוח הצעת מחיר"
-• "תקבע פגישה עם רון ביום שלישי ב-14:00"
-• "שלח מייל לרון@gmail.com — נושא: פגישה..."
-• שלח תמונה/PDF → אנתח
-• שלח הודעה קולית → מתמלל ועונה`;
+*⚙️ הגדרות:*
+/profile — פרופיל מנהל + הגדרות ארגון
+/notes — זיכרון ארגוני
+/calendar — Google Calendar
+/email — סטטוס מייל
+/n8n — סטטוס אוטומציות n8n
+/reset — נקה שיחה
+/ping — בדיקת חיבור
+
+*💬 דוגמאות לשיחה:*
+• "הוסף עובד: דוד כהן, מנהל תחזוקה, מחלקת מבנים"
+• "ספק חדש: חברת ניקיון X, 050-1234567"
+• "מה ביקש אייל לפני חודש?"
+• "הפק דוח שבועי ושלח לי"
+• "מה ההחלטה האחרונה לגבי הגנרטור?"
+• "הוחלט לרכוש גנרטור חדש מסכום 80,000₪"
+• "פרויקט חדש: שיפוץ מסדרון, עלות 50,000₪"
+• "ביקורת משרד הבריאות — הכן תיק"`;
 
 start();

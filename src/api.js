@@ -8,6 +8,8 @@ import {
   getProfile, saveProfile,
 } from "./memory.js";
 import { getUpcoming, addReminder, removeReminder } from "./scheduler.js";
+import { getEmployeeRanking, getVendors, getProjects, getDecisions } from "./entities.js";
+import { detectPatterns, getTaskAnalytics } from "./analytics.js";
 
 export const apiRouter = express.Router();
 
@@ -125,4 +127,31 @@ apiRouter.post("/reminders", (req, res) => {
 apiRouter.delete("/reminders/:id", (req, res) => {
   const found = removeReminder(req.params.id);
   res.json({ success: found });
+});
+
+// ── Analytics & Entities (dashboard) ──────────────────────────────────────────
+apiRouter.get("/employee-ranking", (_req, res) => {
+  res.json({ ranking: getEmployeeRanking() });
+});
+
+apiRouter.get("/vendors", (_req, res) => {
+  res.json({ vendors: Object.values(getVendors()) });
+});
+
+apiRouter.get("/projects", (_req, res) => {
+  const ps = Object.values(getProjects());
+  res.json({ projects: ps.map(p => ({ name: p.name, status: p.status, owner: p.owner, updatedAt: p.updatedAt, lastUpdate: p.updates?.slice(-1)[0]?.update ?? "—" })) });
+});
+
+apiRouter.get("/decisions", (req, res) => {
+  const all = getDecisions();
+  res.json(all.slice(0, parseInt(req.query.limit ?? "20")));
+});
+
+apiRouter.get("/analytics/tasks", (req, res) => {
+  res.json(getTaskAnalytics(parseInt(req.query.days ?? "7")));
+});
+
+apiRouter.get("/analytics/patterns", (_req, res) => {
+  res.json({ patterns: detectPatterns() });
 });
