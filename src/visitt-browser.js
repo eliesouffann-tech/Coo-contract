@@ -1,12 +1,23 @@
 /**
  * Visitt browser-based integration using Playwright.
  * Used when VISITT_EMAIL + VISITT_PASSWORD are set (no Partner API token needed).
- * Logs in to the Visitt web app, intercepts the internal auth token,
- * then uses it to call Visitt's internal API directly.
+ * Playwright is imported lazily so the server starts even if no browser is installed.
  */
-import { chromium } from "playwright";
 import path from "path";
 import fs from "fs";
+
+let _chromium = null;
+async function getChromium() {
+  if (!_chromium) {
+    try {
+      const pw = await import("playwright");
+      _chromium = pw.chromium;
+    } catch {
+      throw new Error("Playwright לא מותקן. הרץ: npm install playwright && npx playwright install chromium");
+    }
+  }
+  return _chromium;
+}
 
 const SESSION_FILE = path.resolve("data/visitt-session.json");
 const TOKEN_FILE = path.resolve("data/visitt-token.json");
@@ -51,8 +62,8 @@ function clearCache() {
 }
 
 // ─── Browser launcher ─────────────────────────────────────────────────────────
-function launchChromium() {
-  // Use env-specified path (Claude dev env) or let Playwright find its own install
+async function launchChromium() {
+  const chromium = await getChromium();
   const executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH
     ?? (process.env.PLAYWRIGHT_BROWSERS_PATH ? `${process.env.PLAYWRIGHT_BROWSERS_PATH}/chromium` : undefined);
   return chromium.launch({
