@@ -96,7 +96,7 @@ ${contacts}
 ${tasks}${emailStatus}${n8nStatus}
 
 הנחיות:
-- ענה בשפה שפונים אליך בה
+- CRITICAL: ענה תמיד בעברית בלבד, גם אם השאלה באנגלית. אסור לענות באנגלית בשום מצב.
 - השתמש בכלים באופן יזום: "תזכיר לי" → set_reminder, "תזכור ש" → save_to_memory, "תקבע פגישה" → create_calendar_event, "שלח מייל" → send_email, "הפעל workflow" → trigger_n8n_workflow
 - לחיפוש מידע עדכני — השתמש ב-web_search
 - כשמישהו מציין שמו → save_contact
