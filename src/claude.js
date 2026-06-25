@@ -15,8 +15,10 @@ const groq = new OpenAI({
   baseURL: "https://api.groq.com/openai/v1",
 });
 
-const MODEL = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
-const FALLBACK_MODEL = "llama3-70b-8192";
+// llama-3.1-8b-instant: ~500K TPD free, fast, tool-capable
+// llama-3.3-70b-versatile: 100K TPD free, smarter but hits limit fast
+const MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
+const FALLBACK_MODEL = "llama-3.3-70b-versatile";
 const VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 
 const WEB_SEARCH_TOOL = {
@@ -157,15 +159,17 @@ export async function chat(fromPhone, userContent) {
     userText = typeof userContent === "string" ? userContent : userContent.summary;
   }
 
+  // Keep last 20 messages to limit token usage on free tier
+  const recentHistory = history.slice(-20);
   const messages = [
     { role: "system", content: systemPrompt },
-    ...history.map((m) => ({ role: m.role, content: m.content })),
+    ...recentHistory.map((m) => ({ role: m.role, content: m.content })),
     { role: "user", content: userText },
   ];
 
   async function callGroq(msgs, withTools = true, modelOverride = null) {
     const model = modelOverride ?? MODEL;
-    const params = { model, messages: msgs, max_tokens: 600 };
+    const params = { model, messages: msgs, max_tokens: 500 };
     if (withTools) {
       params.tools = groqTools;
       params.tool_choice = "auto";
