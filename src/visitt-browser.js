@@ -52,13 +52,24 @@ function clearCache() {
 
 // ─── Browser launcher ─────────────────────────────────────────────────────────
 function launchChromium() {
-  const executablePath = "/opt/pw-browsers/chromium";
-  return chromium.launch({ executablePath, headless: true, args: ["--no-sandbox"] });
+  // Use env-specified path (Claude dev env) or let Playwright find its own install
+  const executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH
+    ?? (process.env.PLAYWRIGHT_BROWSERS_PATH ? `${process.env.PLAYWRIGHT_BROWSERS_PATH}/chromium` : undefined);
+  return chromium.launch({
+    ...(executablePath ? { executablePath } : {}),
+    headless: true,
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+  });
 }
 
 // ─── Login & token capture ────────────────────────────────────────────────────
 async function captureToken() {
-  const browser = await launchChromium();
+  let browser;
+  try {
+    browser = await launchChromium();
+  } catch (err) {
+    throw new Error(`לא ניתן להפעיל דפדפן: ${err.message}. ודא ש-Playwright מותקן או הוסף VISITT_API_TOKEN.`);
+  }
   let capturedToken = null;
   let capturedApiBase = null;
 
