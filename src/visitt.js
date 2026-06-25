@@ -1,6 +1,7 @@
 import axios from "axios";
 import {
-  isBrowserVisittReady, getWorkOrdersBrowser, getStatsBrowser,
+  isBrowserVisittReady, isBrowserVisittActuallyReady,
+  getWorkOrdersBrowser, getStatsBrowser,
   createWorkOrderBrowser, updateWorkOrderBrowser,
 } from "./visitt-browser.js";
 
@@ -8,9 +9,15 @@ const GRAPHQL_URL = "https://partner-api.visitt.io/graphql";
 
 function getToken() { return process.env.VISITT_API_TOKEN; }
 
-// Ready if either Partner API token OR browser credentials are configured
 export function isVisittReady() { return !!getToken() || isBrowserVisittReady(); }
 function usePartnerApi() { return !!getToken(); }
+
+async function ensureBrowser() {
+  if (usePartnerApi()) return true;
+  const ok = await isBrowserVisittActuallyReady();
+  if (!ok) throw new Error("Visitt browser mode אינו זמין בסביבה זו (אין Chrome). הוסף VISITT_API_TOKEN לשימוש ב-Partner API.");
+  return true;
+}
 
 async function gql(query, variables = {}) {
   const token = getToken();
@@ -32,7 +39,7 @@ async function gql(query, variables = {}) {
 
 // ─── WORK ORDERS ─────────────────────────────────────────────────────────────
 export async function getWorkOrders({ status, limit = 50, priority } = {}) {
-  if (!usePartnerApi()) return getWorkOrdersBrowser({ status, limit, priority });
+  if (!usePartnerApi()) { await ensureBrowser(); return getWorkOrdersBrowser({ status, limit, priority }); }
   const data = await gql(
     `query GetWorkOrders($status: String, $priority: String, $limit: Int) {
       workOrders(status: $status, priority: $priority, limit: $limit) {
@@ -49,7 +56,7 @@ export async function getWorkOrders({ status, limit = 50, priority } = {}) {
 }
 
 export async function createWorkOrder({ title, description, categoryId, location, priority, assigneeId, dueDate }) {
-  if (!usePartnerApi()) return createWorkOrderBrowser({ title, description, categoryId, location, priority, assigneeId, dueDate });
+  if (!usePartnerApi()) { await ensureBrowser(); return createWorkOrderBrowser({ title, description, categoryId, location, priority, assigneeId, dueDate }); }
   const data = await gql(
     `mutation CreateWorkOrder($input: WorkOrderInput!) {
       createWorkOrder(input: $input) {
@@ -72,7 +79,7 @@ export async function createWorkOrder({ title, description, categoryId, location
 }
 
 export async function updateWorkOrder(id, { status, priority, assigneeId, note }) {
-  if (!usePartnerApi()) return updateWorkOrderBrowser(id, { status, priority, assigneeId, note });
+  if (!usePartnerApi()) { await ensureBrowser(); return updateWorkOrderBrowser(id, { status, priority, assigneeId, note }); }
   const data = await gql(
     `mutation UpdateWorkOrders($ids: [ID!]!, $input: UpdateWorkOrderInput!) {
       updateWorkOrders(ids: $ids, input: $input) {
@@ -101,7 +108,7 @@ export async function getCategories() {
 
 // ─── STATISTICS (derived from work orders) ───────────────────────────────────
 export async function getStats() {
-  if (!usePartnerApi()) return getStatsBrowser();
+  if (!usePartnerApi()) { await ensureBrowser(); return getStatsBrowser(); }
   const all = await getWorkOrders({ limit: 200 });
 
   const byStatus = {};
