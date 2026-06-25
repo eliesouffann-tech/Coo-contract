@@ -6,6 +6,8 @@ import {
 import { TOOLS, executeTool } from "./tools.js";
 import { isCalendarReady, getUpcomingEventsText } from "./calendar.js";
 import { isEmailReady } from "./email.js";
+import { isN8nReady } from "./n8n.js";
+import { isVisittReady } from "./visitt.js";
 import { webSearch } from "./search.js";
 
 const groq = new OpenAI({
@@ -62,43 +64,67 @@ async function buildSystemPrompt(fromPhone) {
 
   const isOwner = profile.ownerPhone && fromPhone === profile.ownerPhone;
 
-  let identity;
-  if (profile.name) {
-    if (isOwner) {
-      identity = `אתה הסוכן האישי של ${profile.name}${profile.role ? ` (${profile.role})` : ""}.
-${profile.name} עצמו מדבר איתך עכשיו.
-עזור לו בכל: ניתוח מסמכים, קביעת פגישות, תזכורות, כתיבת טקסטים, מחקר, חישובים, שליחת מיילים — הכל.`;
-    } else {
-      identity = `אתה ${profile.name}${profile.role ? `, ${profile.role}` : ""}.
-מישהו שלח הודעה ל-${profile.name}. ענה בדיוק כמוהו — אותו סגנון, אותה שפה, אותה אישיות.
-${profile.style ? `הסגנון שלו: ${profile.style}` : ""}
-אל תזכיר שאתה AI. ענה בטבעיות כאילו אתה ${profile.name} עצמו.`;
-    }
+  const orgName = profile.orgName ? `ארגון: ${profile.orgName}\n` : "";
+  const ownerTitle = profile.name ? `${profile.name}${profile.role ? ` — ${profile.role}` : ""}` : "המנהל";
+
+  const emailStatus = isEmailReady() ? "" : "\n⚠️ מייל: הוסף EMAIL_ADDRESS ו-EMAIL_APP_PASSWORD ל-.env";
+  const n8nStatus = isN8nReady() ? "\n🔀 n8n: trigger_n8n_workflow זמין לאוטומציות." : "";
+  const visittStatus = isVisittReady()
+    ? "\n🔧 Visitt מחובר — visitt_get_work_orders / visitt_create_work_order / visitt_get_stats / visitt_update_work_order זמינים."
+    : "";
+
+  let senderCtx;
+  if (isOwner) {
+    senderCtx = `המנהל עצמו (${ownerTitle}) מדבר איתך.`;
   } else {
-    identity = `אתה סוכן AI אישי.\n💡 שלח /profile להגדרת הפרופיל.`;
+    senderCtx = `הודעה נכנסת מ-${fromPhone}. ענה בשם הארגון.`;
   }
 
-  const emailStatus = isEmailReady() ? "" : "\n⚠️ שליחת מייל: הוסף EMAIL_ADDRESS ו-EMAIL_APP_PASSWORD ל-.env";
-
-  return `${identity}
+  return `אתה מנהל לשכה ומנהל תפעול בכיר עם ניסיון של 30 שנה.
+${orgName}אתה עובד עבור: ${ownerTitle}
+${senderCtx}
 
 🕐 עכשיו: ${now}${calendarSection}
 
-📋 זיכרון:
+📋 זיכרון ארגוני:
 ${notes}
 
 👥 אנשי קשר:
 ${contacts}
 
 ✅ משימות פתוחות:
-${tasks}${emailStatus}
+${tasks}${emailStatus}${n8nStatus}${visittStatus}
 
-הנחיות:
-- ענה בשפה שפונים אליך בה
-- השתמש בכלים באופן יזום: "תזכיר לי" → set_reminder, "תזכור ש" → save_to_memory, "תקבע פגישה" → create_calendar_event, "שלח מייל" → send_email
-- לחיפוש מידע עדכני — השתמש ב-web_search
-- כשמישהו מציין שמו → save_contact
-- הודעות WhatsApp — קצר, ברור, אמוג'י לנוחות קריאה`;
+━━━ עקרונות עבודה ━━━
+
+CRITICAL: ענה תמיד בעברית בלבד. אסור לענות באנגלית בשום מצב.
+
+כמנהל לשכה בכיר, בכל תשובה עליך:
+1. להבין את ההקשר הארגוני המלא
+2. להציע פתרונות קונקרטיים — לא רק לענות
+3. לזהות סיכונים ולהציג אותם
+4. להציע פעולות המשך
+5. לתעד כל החלטה ב-log_decision
+6. לפעול יזום — לא לחכות לשאלה
+
+שימוש בכלים — פעל אוטומטית:
+• "תזכיר לי" → set_reminder
+• "תזכור ש" → save_to_memory
+• "תקבע פגישה" → create_calendar_event
+• "שלח מייל" → send_email
+• "הוסף עובד / ספק" → save_employee / save_vendor
+• "פרויקט חדש" → create_project
+• "הוחלט ש" → log_decision
+• "מה ביקש X?" → search_history
+• "הפק דוח" → generate_daily_report / generate_weekly_report
+• "ביקורת" → generate_audit_report
+• משימה עם מילות דחיפות/בטיחות → add_task_with_priority
+• "כמה קריאות פתוחות?" / "תקלה חדשה" → visitt_get_stats / visitt_create_work_order
+• "עדכן/סגור קריאה Visitt" → visitt_update_work_order
+• לחיפוש מידע עדכני → web_search
+
+עדיפות בסיס: בטיחות > רגולציה > דיירים/מטופלים > עלות > דחיפות
+הודעות WhatsApp: קצר, ברור, אמוג'י למבנה, עד 300 מילה`;
 }
 
 export async function chat(fromPhone, userContent) {

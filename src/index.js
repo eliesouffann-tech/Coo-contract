@@ -12,9 +12,17 @@ import { initScheduler, getUpcoming } from "./scheduler.js";
 import { downloadWhatsAppMedia, parsePdfText, summarizeMedia, transcribeAudio, isTranscriptionReady } from "./media.js";
 import { saveTokenFromCode, getAuthUrl, isCalendarReady, getUpcomingEventsText } from "./calendar.js";
 import { isEmailReady } from "./email.js";
+import { isN8nReady } from "./n8n.js";
+import { apiRouter } from "./api.js";
+import { logMessage, saveContact as saveEntityContact } from "./entities.js";
+import { shouldExtractTask, extractTaskFromMessage } from "./extractor.js";
+import { generateDailyReport, generateWeeklyReport, generateAuditReport } from "./report.js";
+import { addTask } from "./memory.js";
+import { isVisittReady, statusHe, priorityHe, priorityEmoji as visittEmoji } from "./visitt.js";
 
 const app = express();
 app.use(express.json());
+app.use("/api", apiRouter);
 
 const PORT = process.env.PORT || 3000;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
@@ -56,12 +64,27 @@ app.post("/webhook", async (req, res) => {
   const msg = parseIncomingMessage(req.body);
   if (!msg) return;
 
-  const { from, messageId, type } = msg;
+  const { from, messageId, type, senderName: waName } = msg;
   await markAsRead(messageId);
 
   const profile = getProfile();
   const isOwner = profile.ownerPhone && from === profile.ownerPhone;
-  const senderName = getContactName(from) ?? from;
+  const senderName = getContactName(from) ?? waName ?? from;
+
+  // Log every message for analytics & history
+  if (type === "text") {
+    logMessage({ phone: from, name: senderName, text: msg.text, type: "text" });
+  }
+
+  // Auto-extract tasks from incoming text (non-owner messages, or owner if keyword matches)
+  if (type === "text" && !msg.text.startsWith("/")) {
+    const extracted = extractTaskFromMessage(msg.text, senderName, from);
+    if (extracted && !isOwner) {
+      // Auto-create the task silently
+      const task = addTask({ title: extracted.title.slice(0, 120), notes: `מקור: ${senderName} | עדיפות: ${extracted.priority}` });
+      console.log(`📋 משימה אוטומטית: [${extracted.priority}] ${extracted.title.slice(0, 60)}`);
+    }
+  }
 
   // ── Special commands (owner only, text) ──────────────────────────────────
   if (type === "text") {
@@ -130,12 +153,104 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
-    if (textLower === "/briefing") {
-      const briefing = await buildMorningBriefing();
-      if (briefing) {
-        await sendMessage(from, briefing.text);
+    if (textLower === "/visitt" || textLower.startsWith("/visitt ")) {
+      if (!isVisittReady()) {
+        await sendMessage(from,
+          "🔧 *Visitt לא מחובר*\n\n" +
+          "הוסף ל-.env:\n" +
+          "`VISITT_API_TOKEN=your_partner_api_token`\n\n" +
+          "לקבלת ה-token: Visitt → Settings → Partner API"
+        );
+        return;
+      }
+      const { getStats } = await import("./visitt.js");
+      try {
+        const stats = await getStats();
+        const top3Cat = Object.entries(stats.byCategory).sort((a, b) => b[1] - a[1]).slice(0, 3);
+        let msg =
+          `🔧 *Visitt — סטטוס בזמן אמת*\n\n` +
+          `📋 קריאות פתוחות: *${stats.open}*\n` +
+          `⚠️ באיחור: *${stats.overdue}*\n` +
+          `🔴 קריטי/דחוף: *${stats.critical}*\n` +
+          `📊 סה"כ: ${stats.total}\n`;
+        if (top3Cat.length) {
+          msg += `\n🏷 *קטגוריות עיקריות:*\n`;
+          top3Cat.forEach(([cat, count]) => { msg += `• ${cat}: ${count}\n`; });
+        }
+        if (stats.criticalList?.length) {
+          msg += `\n🔴 *קריטיות/דחופות:*\n`;
+          stats.criticalList.slice(0, 3).forEach(w => { msg += `• ${w.title}\n`; });
+        }
+        await sendMessage(from, msg);
+      } catch (err) {
+        await sendMessage(from, `❌ שגיאת Visitt: ${err.message}`);
+      }
+      return;
+    }
+
+    if (textLower === "/n8n") {
+      if (!isN8nReady()) {
+        await sendMessage(from,
+          "🔀 *n8n לא מוגדר*\n\n" +
+          "להפעלת אינטגרציית n8n, הוסף ל-.env:\n" +
+          "`N8N_WEBHOOK_URL=https://your-n8n.instance/webhook`\n" +
+          "`N8N_API_KEY=secret-key` _(אופציונלי)_\n\n" +
+          "לאחר ההגדרה תוכל לבקש ממני: 'הפעל workflow ב-n8n'"
+        );
       } else {
-        await sendMessage(from, "⚠️ הגדר פרופיל קודם: /profile");
+        await sendMessage(from,
+          `🔀 *n8n מחובר ✅*\n\n` +
+          `Webhook Base: ${process.env.N8N_WEBHOOK_URL}\n\n` +
+          `REST API זמין ב: /api\n\n` +
+          `אמור לי 'הפעל workflow ב-n8n' ואוכל להפעיל כל webhook שהגדרת.`
+        );
+      }
+      return;
+    }
+
+    if (textLower === "/briefing" || textLower === "/report") {
+      const report = generateDailyReport();
+      await sendMessage(from, report);
+      return;
+    }
+
+    if (textLower === "/weekly") {
+      const report = generateWeeklyReport();
+      await sendMessage(from, report);
+      return;
+    }
+
+    if (textLower.startsWith("/audit")) {
+      const topic = text.slice("/audit".length).trim() || "כללי";
+      const report = generateAuditReport(topic);
+      await sendMessage(from, report);
+      return;
+    }
+
+    if (textLower === "/employees") {
+      const { getEmployeeRanking } = await import("./entities.js");
+      const ranking = getEmployeeRanking();
+      if (!ranking.length) {
+        await sendMessage(from, "👥 אין עובדים במערכת.\nהוסף: 'שמור עובד: שם, תפקיד, מחלקה'");
+      } else {
+        const lines = ranking.map(e =>
+          `${e.rank}. *${e.name}* (${e.role})\n   ציון: ${e.score}/100 | ✅${e.tasksCompleted}/${e.tasksAssigned} | ⚠️${e.tasksOverdue}`
+        );
+        await sendMessage(from, `👥 *דירוג עובדים:*\n\n${lines.join("\n\n")}`);
+      }
+      return;
+    }
+
+    if (textLower === "/projects") {
+      const { getProjects } = await import("./entities.js");
+      const ps = Object.values(getProjects());
+      if (!ps.length) {
+        await sendMessage(from, "📁 אין פרויקטים.\nצור: 'פרויקט חדש: שם הפרויקט'");
+      } else {
+        const lines = ps.map(p =>
+          `• *${p.name}* — ${p.status}\n  מנהל: ${p.owner || "—"} | עדכון: ${p.updates?.slice(-1)[0]?.update?.slice(0, 50) ?? "אין"}`
+        );
+        await sendMessage(from, `📁 *פרויקטים:*\n\n${lines.join("\n\n")}`);
       }
       return;
     }
@@ -218,8 +333,67 @@ app.post("/webhook", async (req, res) => {
 });
 
 app.get("/health", (_req, res) =>
-  res.json({ status: "ok", calendar: isCalendarReady(), port: PORT })
+  res.json({ status: "ok", calendar: isCalendarReady(), email: isEmailReady(), n8n: isN8nReady(), visitt: isVisittReady(), port: PORT })
 );
+
+// ─── Visitt Webhook (real-time push from Visitt) ──────────────────────────────
+app.post("/webhook/visitt", async (req, res) => {
+  res.sendStatus(200); // respond fast, Visitt has 5s timeout
+  try {
+    const { event, workOrder } = req.body ?? {};
+    if (!event || !workOrder) return;
+
+    const profile = getProfile();
+    if (!profile.ownerPhone) return;
+
+    const emoji = visittEmoji(workOrder.priority);
+    const status = statusHe(workOrder.status);
+    const priority = priorityHe(workOrder.priority);
+
+    let msg;
+    if (event === "workOrder.created") {
+      // Auto-create internal task mirroring the Visitt work order
+      addTask({
+        title: `[Visitt] ${workOrder.title}`,
+        notes: `קריאה #${workOrder._id} | ${workOrder.location ?? ""} | עדיפות: ${priority}`,
+      });
+
+      msg =
+        `${emoji} *קריאה חדשה ב-Visitt*\n` +
+        `📋 *${workOrder.title}*\n` +
+        `📍 מיקום: ${workOrder.location ?? "—"}\n` +
+        `🎯 עדיפות: ${priority}\n` +
+        `🏷 קטגוריה: ${workOrder.category?.name ?? "—"}\n` +
+        `👷 שויך ל: ${workOrder.assignedTo?.name ?? "לא שויך"}\n` +
+        `🆔 מזהה: ${workOrder._id}`;
+
+    } else if (event === "workOrder.statusUpdated") {
+      msg =
+        `🔄 *עדכון קריאה Visitt*\n` +
+        `📋 *${workOrder.title}*\n` +
+        `✅ סטטוס חדש: *${status}*\n` +
+        `🆔 ${workOrder._id}`;
+
+    } else if (event === "workOrder.commented") {
+      const comment = workOrder.lastComment ?? "";
+      msg =
+        `💬 *הערה חדשה בקריאה Visitt*\n` +
+        `📋 ${workOrder.title}\n` +
+        `💬 ${comment.slice(0, 200)}\n` +
+        `🆔 ${workOrder._id}`;
+    }
+
+    if (msg) {
+      await sendMessage(profile.ownerPhone, msg).catch(() => {});
+      console.log(`🔧 Visitt event: ${event} — ${workOrder.title}`);
+    }
+  } catch (err) {
+    console.error("❌ Visitt webhook error:", err.message);
+  }
+});
+
+app.use(express.static("public"));
+app.get("/dashboard", (_req, res) => res.sendFile("dashboard.html", { root: "public" }));
 
 // ─── Startup ──────────────────────────────────────────────────────────────────
 async function start() {
@@ -256,6 +430,10 @@ async function start() {
 
   if (isCalendarReady()) console.log("📅 Google Calendar מחובר ✅");
   if (isEmailReady())    console.log("📧 שליחת מייל מוגדרת ✅");
+  if (isN8nReady())      console.log(`🔀 n8n מחובר ✅  (${process.env.N8N_WEBHOOK_URL})`);
+  if (isVisittReady())   console.log(`🔧 Visitt מחובר ✅  (${process.env.VISITT_API_TOKEN ? "Partner API" : "Browser / " + process.env.VISITT_EMAIL})`);
+  console.log(`🔌 REST API זמין ב: /api`);
+  console.log(`📊 דאשבורד זמין ב: /dashboard`);
 }
 
 async function startNgrok() {
@@ -308,32 +486,22 @@ async function buildMorningBriefing() {
   const profile = getProfile();
   if (!profile.ownerPhone) return null;
 
-  const today = new Date().toLocaleDateString("he-IL", {
-    weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Jerusalem",
-  });
+  let text = generateDailyReport();
 
-  const tasks = getTasksText("pending");
-  const reminders = getUpcoming(profile.ownerPhone).slice(0, 5);
-
-  let calSection = "";
+  // Append calendar if available
   if (isCalendarReady()) {
     try {
-      calSection = `\n📅 *לוח זמנים היום:*\n${await getUpcomingEventsText()}\n`;
+      text += `\n\n📅 *לוח זמנים היום:*\n${await getUpcomingEventsText()}`;
     } catch { /* skip */ }
   }
 
-  const reminderSection = reminders.length
-    ? `\n🔔 *תזכורות להיום:*\n${reminders
-        .map((r) => `• ${r.message} — ${new Date(r.datetime).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" })}`)
-        .join("\n")}`
-    : "";
-
-  const text =
-    `☀️ *בוקר טוב${profile.name ? `, ${profile.name.split(" ")[0]}` : ""}!*\n` +
-    `📅 ${today}\n` +
-    calSection +
-    `\n✅ *משימות פתוחות:*\n${tasks}` +
-    reminderSection;
+  // Append reminders
+  const reminders = getUpcoming(profile.ownerPhone).slice(0, 5);
+  if (reminders.length) {
+    text += `\n\n🔔 *תזכורות:*\n` + reminders
+      .map(r => `• ${r.message} — ${new Date(r.datetime).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" })}`)
+      .join("\n");
+  }
 
   return { phone: profile.ownerPhone, text };
 }
@@ -347,25 +515,36 @@ function validateEnv() {
   }
 }
 
-const HELP_TEXT = `🤖 *פקודות:*
+const HELP_TEXT = `🏢 *מנהל לשכה AI — פקודות:*
 
-/profile — הגדר פרופיל (שם, תפקיד, סגנון)
-/briefing — קבל סיכום יומי עכשיו
-/notes — זיכרון שמור
-/tasks — רשימת משימות
+*📊 דוחות:*
+/report — דוח יומי (משימות, קריטיות, איחורים)
+/weekly — דוח שבועי + KPIs + דירוג עובדים
+/audit [נושא] — תיק ביקורת (בריאות/בטיחות/כיבוי אש)
+
+*👥 ניהול:*
+/employees — דירוג ביצועי עובדים
+/projects — סטטוס פרויקטים
+/tasks — כל המשימות הפתוחות
 /reminders — תזכורות פעילות
-/calendar — סטטוס Google Calendar
-/email — סטטוס שליחת מייל
-/reset — נקה היסטוריית שיחה
-/help — עזרה זו
 
-💬 *דוגמאות:*
-• "מה מזג האוויר בתל אביב היום?" — חיפוש ברשת
-• "תזכיר לי מחר ב-9 לצלצל לדוד"
-• "תוסיף משימה: לשלוח הצעת מחיר"
-• "תקבע פגישה עם רון ביום שלישי ב-14:00"
-• "שלח מייל לרון@gmail.com — נושא: פגישה..."
-• שלח תמונה/PDF → אנתח
-• שלח הודעה קולית → מתמלל ועונה`;
+*⚙️ הגדרות:*
+/profile — פרופיל מנהל + הגדרות ארגון
+/notes — זיכרון ארגוני
+/calendar — Google Calendar
+/email — סטטוס מייל
+/n8n — סטטוס אוטומציות n8n
+/reset — נקה שיחה
+/ping — בדיקת חיבור
+
+*💬 דוגמאות לשיחה:*
+• "הוסף עובד: דוד כהן, מנהל תחזוקה, מחלקת מבנים"
+• "ספק חדש: חברת ניקיון X, 050-1234567"
+• "מה ביקש אייל לפני חודש?"
+• "הפק דוח שבועי ושלח לי"
+• "מה ההחלטה האחרונה לגבי הגנרטור?"
+• "הוחלט לרכוש גנרטור חדש מסכום 80,000₪"
+• "פרויקט חדש: שיפוץ מסדרון, עלות 50,000₪"
+• "ביקורת משרד הבריאות — הכן תיק"`;
 
 start();
