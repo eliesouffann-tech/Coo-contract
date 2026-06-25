@@ -1,0 +1,201 @@
+{
+  "name": "WhatsApp Agent — Sync Tasks from Notion/External",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "hours", "hoursInterval": 6 }
+          ]
+        }
+      },
+      "id": "schedule-sync",
+      "name": "Every 6 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sync-task",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-task",
+      "name": "Webhook: New External Task",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [260, 500],
+      "webhookId": "sync-task"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.AGENT_URL }}/api/tasks?filter=pending",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "get-agent-tasks",
+      "name": "Get Agent Tasks",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [480, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "agent-api-key",
+          "name": "Agent API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// This node formats agent tasks for display\n// Replace this with your external source (Notion, Trello, Asana, etc.)\nconst tasks = $input.item.json;\nconst taskList = Array.isArray(tasks) ? tasks : [];\n\nif (taskList.length === 0) {\n  return [{ json: { shouldNotify: false, message: '' } }];\n}\n\nconst lines = taskList.map(t => {\n  const due = t.dueDate ? ` (עד ${new Date(t.dueDate).toLocaleDateString('he-IL')})` : '';\n  return `⬜ ${t.title}${due}`;\n});\n\nreturn [{\n  json: {\n    shouldNotify: true,\n    message: `📋 *סיכום משימות פתוחות (${taskList.length}):*\\n\\n${lines.join('\\n')}`\n  }\n}];"
+      },
+      "id": "format-tasks",
+      "name": "Format Task Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "should-notify",
+              "leftValue": "={{ $json.shouldNotify }}",
+              "rightValue": "true",
+              "operator": { "type": "boolean", "operation": "true" }
+            }
+          ]
+        }
+      },
+      "id": "check-notify",
+      "name": "Any Tasks?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AGENT_URL }}/api/send",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "phone", "value": "={{ $env.OWNER_PHONE }}" },
+            { "name": "message", "value": "={{ $json.message }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "send-summary",
+      "name": "Send Task Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1100, 220],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "agent-api-key",
+          "name": "Agent API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.item.json.body;\nreturn [{ json: { title: body.title, due_date: body.due_date || null, notes: body.notes || '' } }];"
+      },
+      "id": "parse-ext-task",
+      "name": "Parse External Task",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 500]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AGENT_URL }}/api/tasks",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "title", "value": "={{ $json.title }}" },
+            { "name": "due_date", "value": "={{ $json.due_date }}" },
+            { "name": "notes", "value": "={{ $json.notes }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "create-task",
+      "name": "Create Task in Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [700, 500],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "agent-api-key",
+          "name": "Agent API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "respond-task",
+      "name": "Respond with Task",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 500]
+    },
+    {
+      "parameters": {},
+      "id": "no-tasks",
+      "name": "No Tasks",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1100, 380]
+    }
+  ],
+  "connections": {
+    "Every 6 Hours": {
+      "main": [[{ "node": "Get Agent Tasks", "type": "main", "index": 0 }]]
+    },
+    "Get Agent Tasks": {
+      "main": [[{ "node": "Format Task Summary", "type": "main", "index": 0 }]]
+    },
+    "Format Task Summary": {
+      "main": [[{ "node": "Any Tasks?", "type": "main", "index": 0 }]]
+    },
+    "Any Tasks?": {
+      "main": [
+        [{ "node": "Send Task Summary", "type": "main", "index": 0 }],
+        [{ "node": "No Tasks", "type": "main", "index": 0 }]
+      ]
+    },
+    "Webhook: New External Task": {
+      "main": [[{ "node": "Parse External Task", "type": "main", "index": 0 }]]
+    },
+    "Parse External Task": {
+      "main": [[{ "node": "Create Task in Agent", "type": "main", "index": 0 }]]
+    },
+    "Create Task in Agent": {
+      "main": [[{ "node": "Respond with Task", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "meta": { "templateCredsSetupCompleted": false },
+  "pinData": {},
+  "versionId": "1",
+  "triggerCount": 0,
+  "tags": [{ "createdAt": "2024-01-01T00:00:00.000Z", "updatedAt": "2024-01-01T00:00:00.000Z", "id": "whatsapp-agent", "name": "WhatsApp Agent" }],
+  "notes": "## Two Workflows in One\n\n### 1. Scheduled Task Summary (top path)\nEvery 6 hours, fetches open tasks and sends a WhatsApp summary to the owner.\n\n### 2. External Task Webhook (bottom path)\nReceive tasks from external tools (Notion, Trello, Asana, Zapier) and add them to the agent.\n\nPOST to webhook URL:\n```json\n{\n  \"title\": \"Review proposal for Client X\",\n  \"due_date\": \"2024-12-25\",\n  \"notes\": \"From Notion board\"\n}\n```"
+}

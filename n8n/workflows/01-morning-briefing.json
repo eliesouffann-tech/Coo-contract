@@ -1,0 +1,192 @@
+{
+  "name": "WhatsApp Agent — Morning Briefing",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every Day at 8:00 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.AGENT_URL }}/api/profile",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "get-profile",
+      "name": "Get Owner Profile",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "agent-api-key",
+          "name": "Agent API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.AGENT_URL }}/api/tasks?filter=pending",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "get-tasks",
+      "name": "Get Pending Tasks",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 460],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "agent-api-key",
+          "name": "Agent API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.AGENT_URL }}/api/reminders?phone={{ $('Get Owner Profile').item.json.ownerPhone }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "get-reminders",
+      "name": "Get Today's Reminders",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 620],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "agent-api-key",
+          "name": "Agent API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const profile = $('Get Owner Profile').item.json;\nconst tasks = $('Get Pending Tasks').item.json;\nconst reminders = $('Get Today\'s Reminders').item.json;\n\nconst now = new Date();\nconst dayNames = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];\nconst monthNames = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];\nconst day = dayNames[now.getDay()];\nconst dateStr = `${now.getDate()} ${monthNames[now.getMonth()]} ${now.getFullYear()}`;\n\nconst firstName = profile.name ? profile.name.split(' ')[0] : '';\nlet text = `☀️ *בוקר טוב${firstName ? `, ${firstName}` : ''}!*\\n📅 יום ${day}, ${dateStr}\\n`;\n\nconst pendingTasks = Array.isArray(tasks) ? tasks.filter(t => !t.done) : [];\nif (pendingTasks.length > 0) {\n  text += `\\n✅ *משימות פתוחות (${pendingTasks.length}):*\\n`;\n  pendingTasks.slice(0, 5).forEach(t => {\n    text += `⬜ ${t.title}\\n`;\n  });\n  if (pendingTasks.length > 5) text += `... ועוד ${pendingTasks.length - 5}\\n`;\n} else {\n  text += `\\n✅ *אין משימות פתוחות* 🎉\\n`;\n}\n\nconst todayReminders = Array.isArray(reminders) ? reminders.filter(r => {\n  const d = new Date(r.datetime);\n  return d.getDate() === now.getDate() && d.getMonth() === now.getMonth();\n}) : [];\n\nif (todayReminders.length > 0) {\n  text += `\\n🔔 *תזכורות להיום:*\\n`;\n  todayReminders.forEach(r => {\n    const t = new Date(r.datetime);\n    const timeStr = `${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`;\n    text += `• ${r.message} — ${timeStr}\\n`;\n  });\n}\n\ntext += `\\nיום פורה! 💪`;\n\nreturn [{ json: { phone: profile.ownerPhone, message: text } }];"
+      },
+      "id": "build-briefing",
+      "name": "Build Briefing Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 460]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-phone",
+              "leftValue": "={{ $json.phone }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ]
+        }
+      },
+      "id": "check-owner",
+      "name": "Owner Phone Set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 460]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AGENT_URL }}/api/send",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "phone", "value": "={{ $json.phone }}" },
+            { "name": "message", "value": "={{ $json.message }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "send-briefing",
+      "name": "Send WhatsApp Briefing",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1100, 380],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "agent-api-key",
+          "name": "Agent API Key"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "skip-no-phone",
+      "name": "Skip — No Owner Phone",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1100, 560]
+    }
+  ],
+  "connections": {
+    "Every Day at 8:00 AM": {
+      "main": [
+        [
+          { "node": "Get Owner Profile", "type": "main", "index": 0 },
+          { "node": "Get Pending Tasks", "type": "main", "index": 0 },
+          { "node": "Get Today's Reminders", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Get Owner Profile": {
+      "main": [[{ "node": "Build Briefing Message", "type": "main", "index": 0 }]]
+    },
+    "Get Pending Tasks": {
+      "main": [[{ "node": "Build Briefing Message", "type": "main", "index": 0 }]]
+    },
+    "Get Today's Reminders": {
+      "main": [[{ "node": "Build Briefing Message", "type": "main", "index": 0 }]]
+    },
+    "Build Briefing Message": {
+      "main": [[{ "node": "Owner Phone Set?", "type": "main", "index": 0 }]]
+    },
+    "Owner Phone Set?": {
+      "main": [
+        [{ "node": "Send WhatsApp Briefing", "type": "main", "index": 0 }],
+        [{ "node": "Skip — No Owner Phone", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "versionId": "1",
+  "triggerCount": 0,
+  "tags": [{ "createdAt": "2024-01-01T00:00:00.000Z", "updatedAt": "2024-01-01T00:00:00.000Z", "id": "whatsapp-agent", "name": "WhatsApp Agent" }],
+  "notes": "## Setup\n1. Set env var AGENT_URL = your agent URL (e.g. https://your-agent.railway.app)\n2. Create an HTTP Header Auth credential named 'Agent API Key' with header name 'x-api-key' and your N8N_API_KEY value\n3. Activate the workflow\n\nThis workflow sends a daily morning briefing at 8:00 AM with tasks and reminders."
+}

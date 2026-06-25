@@ -1,0 +1,138 @@
+{
+  "name": "WhatsApp Agent — Broadcast Message",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-broadcast",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook: POST /whatsapp-broadcast",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [260, 300],
+      "webhookId": "whatsapp-broadcast"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "check-message",
+              "leftValue": "={{ $json.body.message }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty" }
+            }
+          ]
+        }
+      },
+      "id": "validate-input",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.item.json.body;\nconst phones = body.phones || [];\nconst message = body.message;\nreturn phones.map(phone => ({ json: { phone, message } }));"
+      },
+      "id": "split-contacts",
+      "name": "Split Into Contacts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AGENT_URL }}/api/send",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "phone", "value": "={{ $json.phone }}" },
+            { "name": "message", "value": "={{ $json.message }}" }
+          ]
+        },
+        "options": { "batching": { "batch": { "batchSize": 1, "batchInterval": 1000 } } }
+      },
+      "id": "send-messages",
+      "name": "Send WhatsApp Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 220],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "agent-api-key",
+          "name": "Agent API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = $input.all();\nconst sent = results.filter(r => r.json.success).length;\nreturn [{ json: { success: true, sent, total: results.length } }];"
+      },
+      "id": "summarize-results",
+      "name": "Summarize Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 220]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "respond-ok",
+      "name": "Respond with Summary",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1300, 220]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"error\": \"message is required\" }",
+        "options": { "responseCode": 400 }
+      },
+      "id": "respond-error",
+      "name": "Respond with Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [700, 420]
+    }
+  ],
+  "connections": {
+    "Webhook: POST /whatsapp-broadcast": {
+      "main": [[{ "node": "Validate Input", "type": "main", "index": 0 }]]
+    },
+    "Validate Input": {
+      "main": [
+        [{ "node": "Split Into Contacts", "type": "main", "index": 0 }],
+        [{ "node": "Respond with Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "Split Into Contacts": {
+      "main": [[{ "node": "Send WhatsApp Message", "type": "main", "index": 0 }]]
+    },
+    "Send WhatsApp Message": {
+      "main": [[{ "node": "Summarize Results", "type": "main", "index": 0 }]]
+    },
+    "Summarize Results": {
+      "main": [[{ "node": "Respond with Summary", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "meta": { "templateCredsSetupCompleted": false },
+  "pinData": {},
+  "versionId": "1",
+  "triggerCount": 0,
+  "tags": [{ "createdAt": "2024-01-01T00:00:00.000Z", "updatedAt": "2024-01-01T00:00:00.000Z", "id": "whatsapp-agent", "name": "WhatsApp Agent" }],
+  "notes": "## Usage\nPOST to this webhook URL:\n```json\n{\n  \"phones\": [\"972501234567\", \"972509876543\"],\n  \"message\": \"📢 Your broadcast message here\"\n}\n```\n\nMessages are sent with 1 second delay between each (to avoid rate limiting).\nReturns: { success: true, sent: N, total: N }"
+}

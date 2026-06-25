@@ -6,6 +6,7 @@ import {
 import { TOOLS, executeTool } from "./tools.js";
 import { isCalendarReady, getUpcomingEventsText } from "./calendar.js";
 import { isEmailReady } from "./email.js";
+import { isN8nReady } from "./n8n.js";
 import { webSearch } from "./search.js";
 
 const groq = new OpenAI({
@@ -79,6 +80,7 @@ ${profile.style ? `הסגנון שלו: ${profile.style}` : ""}
   }
 
   const emailStatus = isEmailReady() ? "" : "\n⚠️ שליחת מייל: הוסף EMAIL_ADDRESS ו-EMAIL_APP_PASSWORD ל-.env";
+  const n8nStatus = isN8nReady() ? "\n🔀 n8n מחובר — השתמש ב-trigger_n8n_workflow להפעלת אוטומציות חיצוניות." : "";
 
   return `${identity}
 
@@ -91,11 +93,11 @@ ${notes}
 ${contacts}
 
 ✅ משימות פתוחות:
-${tasks}${emailStatus}
+${tasks}${emailStatus}${n8nStatus}
 
 הנחיות:
 - ענה בשפה שפונים אליך בה
-- השתמש בכלים באופן יזום: "תזכיר לי" → set_reminder, "תזכור ש" → save_to_memory, "תקבע פגישה" → create_calendar_event, "שלח מייל" → send_email
+- השתמש בכלים באופן יזום: "תזכיר לי" → set_reminder, "תזכור ש" → save_to_memory, "תקבע פגישה" → create_calendar_event, "שלח מייל" → send_email, "הפעל workflow" → trigger_n8n_workflow
 - לחיפוש מידע עדכני — השתמש ב-web_search
 - כשמישהו מציין שמו → save_contact
 - הודעות WhatsApp — קצר, ברור, אמוג'י לנוחות קריאה`;

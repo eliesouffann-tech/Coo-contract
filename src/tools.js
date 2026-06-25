@@ -8,6 +8,7 @@ import {
 } from "./memory.js";
 import { createEvent, listEvents, deleteEvent, isCalendarReady } from "./calendar.js";
 import { sendEmail, isEmailReady } from "./email.js";
+import { triggerN8nWorkflow, isN8nReady } from "./n8n.js";
 
 export const TOOLS = [
   // ── Memory ──────────────────────────────────────────────────────────────────
@@ -204,6 +205,21 @@ export const TOOLS = [
       },
     },
   },
+
+  // ── n8n Automation ────────────────────────────────────────────────────────────
+  {
+    name: "trigger_n8n_workflow",
+    description: "מפעיל workflow ב-n8n דרך webhook. השתמש כשצריך להפעיל אוטומציה חיצונית — שליחת מייל מורכבת, עדכון CRM, סנכרון נתונים, או כל תהליך שהוגדר ב-n8n.",
+    input_schema: {
+      type: "object",
+      properties: {
+        webhook_path: { type: "string", description: "נתיב ה-webhook ב-n8n, למשל: 'webhook/crm-update' או URL מלא" },
+        data: { type: "object", description: "נתונים לשלוח ל-workflow" },
+        description: { type: "string", description: "תיאור קצר של מה האוטומציה עושה (לצורך לוגים)" },
+      },
+      required: ["webhook_path"],
+    },
+  },
 ];
 
 export async function executeTool(name, input) {
@@ -309,6 +325,13 @@ export async function executeTool(name, input) {
       const current = getProfile();
       saveProfile({ ...current, ...input });
       return { success: true };
+    }
+
+    // n8n
+    case "trigger_n8n_workflow": {
+      if (!isN8nReady()) return { error: "n8n לא מוגדר. הוסף N8N_WEBHOOK_URL ל-.env" };
+      console.log(`🔀 n8n trigger: ${input.description ?? input.webhook_path}`);
+      return await triggerN8nWorkflow(input.webhook_path, input.data ?? {});
     }
 
     default:

@@ -1,0 +1,219 @@
+{
+  "name": "WhatsApp Agent — New Lead Notification",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "new-lead",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-lead",
+      "name": "Webhook: New Lead",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [260, 300],
+      "webhookId": "new-lead"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.item.json.body;\nconst name = body.name || body.full_name || body.firstName || 'ליד חדש';\nconst phone = body.phone || body.mobile || body.telephone || '';\nconst email = body.email || '';\nconst source = body.source || body.utm_source || 'לא ידוע';\nconst notes = body.notes || body.message || '';\nconst phoneClean = phone.replace(/[^0-9]/g, '').replace(/^0/, '972');\nreturn [{ json: { name, phone: phoneClean, email, source, notes, rawPhone: phone } }];"
+      },
+      "id": "parse-lead",
+      "name": "Parse Lead Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "check-phone",
+              "leftValue": "={{ $json.phone.length > 9 }}",
+              "rightValue": "true",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ]
+        }
+      },
+      "id": "has-phone",
+      "name": "Has Phone?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AGENT_URL }}/api/contacts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "phone", "value": "={{ $json.phone }}" },
+            { "name": "name", "value": "={{ $json.name }}" },
+            { "name": "notes", "value": "=ליד | מקור: {{ $json.source }}{{ $json.email ? ' | ' + $json.email : '' }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "save-contact",
+      "name": "Save Contact in Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [920, 220],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "agent-api-key",
+          "name": "Agent API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AGENT_URL }}/api/tasks",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "title", "value": "=📞 ליד חדש: {{ $('Parse Lead Data').item.json.name }} — לחזור בהקדם" },
+            { "name": "notes", "value": "=טלפון: {{ $('Parse Lead Data').item.json.rawPhone }} | מקור: {{ $('Parse Lead Data').item.json.source }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "add-task",
+      "name": "Add Follow-up Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [920, 380],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "agent-api-key",
+          "name": "Agent API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AGENT_URL }}/api/send",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "phone", "value": "={{ $env.OWNER_PHONE }}" },
+            { "name": "message", "value": "=🔔 *ליד חדש!*\n\n👤 *שם:* {{ $('Parse Lead Data').item.json.name }}\n📱 *טלפון:* {{ $('Parse Lead Data').item.json.rawPhone }}\n📧 *מייל:* {{ $('Parse Lead Data').item.json.email || '—' }}\n🌐 *מקור:* {{ $('Parse Lead Data').item.json.source }}\n{{ $('Parse Lead Data').item.json.notes ? '💬 *הערות:* ' + $('Parse Lead Data').item.json.notes : '' }}\n\n✅ נוסף לאנשי קשר ומשימות!" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "notify-owner",
+      "name": "Notify Owner via WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1140, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "agent-api-key",
+          "name": "Agent API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"success\": true, \"message\": \"Lead saved and owner notified\" }",
+        "options": {}
+      },
+      "id": "respond-success",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1360, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AGENT_URL }}/api/tasks",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "title", "value": "=📞 ליד ללא טלפון: {{ $('Parse Lead Data').item.json.name }}" },
+            { "name": "notes", "value": "=מייל: {{ $('Parse Lead Data').item.json.email }} | מקור: {{ $('Parse Lead Data').item.json.source }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "task-no-phone",
+      "name": "Add Task (No Phone)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [920, 520],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "agent-api-key",
+          "name": "Agent API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"success\": true, \"message\": \"Lead saved (no phone — task created)\" }",
+        "options": {}
+      },
+      "id": "respond-no-phone",
+      "name": "Respond (No Phone)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1140, 520]
+    }
+  ],
+  "connections": {
+    "Webhook: New Lead": {
+      "main": [[{ "node": "Parse Lead Data", "type": "main", "index": 0 }]]
+    },
+    "Parse Lead Data": {
+      "main": [[{ "node": "Has Phone?", "type": "main", "index": 0 }]]
+    },
+    "Has Phone?": {
+      "main": [
+        [
+          { "node": "Save Contact in Agent", "type": "main", "index": 0 },
+          { "node": "Add Follow-up Task", "type": "main", "index": 0 }
+        ],
+        [{ "node": "Add Task (No Phone)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Save Contact in Agent": {
+      "main": [[{ "node": "Notify Owner via WhatsApp", "type": "main", "index": 0 }]]
+    },
+    "Add Follow-up Task": {
+      "main": [[{ "node": "Notify Owner via WhatsApp", "type": "main", "index": 0 }]]
+    },
+    "Notify Owner via WhatsApp": {
+      "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]]
+    },
+    "Add Task (No Phone)": {
+      "main": [[{ "node": "Respond (No Phone)", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "meta": { "templateCredsSetupCompleted": false },
+  "pinData": {},
+  "versionId": "1",
+  "triggerCount": 0,
+  "tags": [{ "createdAt": "2024-01-01T00:00:00.000Z", "updatedAt": "2024-01-01T00:00:00.000Z", "id": "whatsapp-agent", "name": "WhatsApp Agent" }],
+  "notes": "## What This Does\nWhen a new lead arrives (from your website form, CRM, etc.):\n1. Saves the contact in the agent's memory\n2. Creates a follow-up task\n3. Sends an instant WhatsApp notification to the owner\n\n## Setup\n1. Set AGENT_URL and OWNER_PHONE env vars in n8n\n2. Create HTTP Header Auth credential 'Agent API Key'\n3. Connect your form/CRM to POST to this webhook URL\n\n## Input Format\n```json\n{\n  \"name\": \"John Doe\",\n  \"phone\": \"0501234567\",\n  \"email\": \"john@example.com\",\n  \"source\": \"website\",\n  \"notes\": \"Interested in product X\"\n}\n```"
+}

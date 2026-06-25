@@ -12,9 +12,12 @@ import { initScheduler, getUpcoming } from "./scheduler.js";
 import { downloadWhatsAppMedia, parsePdfText, summarizeMedia, transcribeAudio, isTranscriptionReady } from "./media.js";
 import { saveTokenFromCode, getAuthUrl, isCalendarReady, getUpcomingEventsText } from "./calendar.js";
 import { isEmailReady } from "./email.js";
+import { isN8nReady } from "./n8n.js";
+import { apiRouter } from "./api.js";
 
 const app = express();
 app.use(express.json());
+app.use("/api", apiRouter);
 
 const PORT = process.env.PORT || 3000;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
@@ -130,6 +133,26 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
+    if (textLower === "/n8n") {
+      if (!isN8nReady()) {
+        await sendMessage(from,
+          "🔀 *n8n לא מוגדר*\n\n" +
+          "להפעלת אינטגרציית n8n, הוסף ל-.env:\n" +
+          "`N8N_WEBHOOK_URL=https://your-n8n.instance/webhook`\n" +
+          "`N8N_API_KEY=secret-key` _(אופציונלי)_\n\n" +
+          "לאחר ההגדרה תוכל לבקש ממני: 'הפעל workflow ב-n8n'"
+        );
+      } else {
+        await sendMessage(from,
+          `🔀 *n8n מחובר ✅*\n\n` +
+          `Webhook Base: ${process.env.N8N_WEBHOOK_URL}\n\n` +
+          `REST API זמין ב: /api\n\n` +
+          `אמור לי 'הפעל workflow ב-n8n' ואוכל להפעיל כל webhook שהגדרת.`
+        );
+      }
+      return;
+    }
+
     if (textLower === "/briefing") {
       const briefing = await buildMorningBriefing();
       if (briefing) {
@@ -218,7 +241,7 @@ app.post("/webhook", async (req, res) => {
 });
 
 app.get("/health", (_req, res) =>
-  res.json({ status: "ok", calendar: isCalendarReady(), port: PORT })
+  res.json({ status: "ok", calendar: isCalendarReady(), email: isEmailReady(), n8n: isN8nReady(), port: PORT })
 );
 
 // ─── Startup ──────────────────────────────────────────────────────────────────
@@ -256,6 +279,8 @@ async function start() {
 
   if (isCalendarReady()) console.log("📅 Google Calendar מחובר ✅");
   if (isEmailReady())    console.log("📧 שליחת מייל מוגדרת ✅");
+  if (isN8nReady())      console.log(`🔀 n8n מחובר ✅  (${process.env.N8N_WEBHOOK_URL})`);
+  console.log(`🔌 REST API זמין ב: /api  (הגן עם N8N_API_KEY ב-.env)`);
 }
 
 async function startNgrok() {
@@ -356,6 +381,7 @@ const HELP_TEXT = `🤖 *פקודות:*
 /reminders — תזכורות פעילות
 /calendar — סטטוס Google Calendar
 /email — סטטוס שליחת מייל
+/n8n — סטטוס אינטגרציית n8n
 /reset — נקה היסטוריית שיחה
 /help — עזרה זו
 
