@@ -14,7 +14,7 @@ import { saveTokenFromCode, getAuthUrl, isCalendarReady, getUpcomingEventsText }
 import { isEmailReady } from "./email.js";
 import { isN8nReady } from "./n8n.js";
 import { apiRouter } from "./api.js";
-import { logMessage, saveContact as saveEntityContact } from "./entities.js";
+import { logMessage } from "./entities.js";
 import { shouldExtractTask, extractTaskFromMessage } from "./extractor.js";
 import { generateDailyReport, generateWeeklyReport, generateAuditReport } from "./report.js";
 import { addTask } from "./memory.js";
