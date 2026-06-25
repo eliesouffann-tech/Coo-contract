@@ -15,10 +15,11 @@ const groq = new OpenAI({
   baseURL: "https://api.groq.com/openai/v1",
 });
 
-// llama-3.1-8b-instant: ~500K TPD free, fast, tool-capable
-// llama-3.3-70b-versatile: 100K TPD free, smarter but hits limit fast
-const MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
-const FALLBACK_MODEL = "llama-3.3-70b-versatile";
+// gemma2-9b-it:            15K TPM, 500K TPD — handles large prompts ✅
+// llama-3.1-8b-instant:    6K TPM (too small for our prompt+tools)
+// llama-3.3-70b-versatile: 6K TPM, 100K TPD (hits daily limit fast)
+const MODEL = process.env.GROQ_MODEL || "gemma2-9b-it";
+const FALLBACK_MODEL = "llama-3.1-8b-instant";
 const VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 
 const WEB_SEARCH_TOOL = {
@@ -83,51 +84,19 @@ async function buildSystemPrompt(fromPhone) {
     senderCtx = `הודעה נכנסת מ-${fromPhone}. ענה בשם הארגון.`;
   }
 
-  return `אתה מנהל לשכה ומנהל תפעול בכיר עם ניסיון של 30 שנה.
-${orgName}אתה עובד עבור: ${ownerTitle}
-${senderCtx}
+  const notesShort = notes.length > 600 ? notes.slice(0, 600) + "…" : notes;
+  const contactsShort = contacts.length > 400 ? contacts.slice(0, 400) + "…" : contacts;
+  const tasksShort = tasks.length > 400 ? tasks.slice(0, 400) + "…" : tasks;
 
-🕐 עכשיו: ${now}${calendarSection}
+  return `אתה מנהל לשכה בכיר. ענה תמיד בעברית בלבד.
+${orgName}עבור: ${ownerTitle} | ${senderCtx}
+🕐 ${now}${calendarSection}
+📋 זיכרון: ${notesShort}
+👥 קשרים: ${contactsShort}
+✅ משימות: ${tasksShort}${emailStatus}${visittStatus}
 
-📋 זיכרון ארגוני:
-${notes}
-
-👥 אנשי קשר:
-${contacts}
-
-✅ משימות פתוחות:
-${tasks}${emailStatus}${n8nStatus}${visittStatus}
-
-━━━ עקרונות עבודה ━━━
-
-CRITICAL: ענה תמיד בעברית בלבד. אסור לענות באנגלית בשום מצב.
-
-כמנהל לשכה בכיר, בכל תשובה עליך:
-1. להבין את ההקשר הארגוני המלא
-2. להציע פתרונות קונקרטיים — לא רק לענות
-3. לזהות סיכונים ולהציג אותם
-4. להציע פעולות המשך
-5. לתעד כל החלטה ב-log_decision
-6. לפעול יזום — לא לחכות לשאלה
-
-שימוש בכלים — פעל אוטומטית:
-• "תזכיר לי" → set_reminder
-• "תזכור ש" → save_to_memory
-• "תקבע פגישה" → create_calendar_event
-• "שלח מייל" → send_email
-• "הוסף עובד / ספק" → save_employee / save_vendor
-• "פרויקט חדש" → create_project
-• "הוחלט ש" → log_decision
-• "מה ביקש X?" → search_history
-• "הפק דוח" → generate_daily_report / generate_weekly_report
-• "ביקורת" → generate_audit_report
-• משימה עם מילות דחיפות/בטיחות → add_task_with_priority
-• "כמה קריאות פתוחות?" / "תקלה חדשה" → visitt_get_stats / visitt_create_work_order
-• "עדכן/סגור קריאה Visitt" → visitt_update_work_order
-• לחיפוש מידע עדכני → web_search
-
-עדיפות בסיס: בטיחות > רגולציה > דיירים/מטופלים > עלות > דחיפות
-הודעות WhatsApp: קצר, ברור, אמוג'י למבנה, עד 300 מילה`;
+השתמש בכלים אוטומטית: תזכורות→set_reminder, זיכרון→save_to_memory, החלטות→log_decision, Visitt→visitt_get_stats/visitt_create_work_order, דוח→generate_daily_report.
+עדיפות: בטיחות > רגולציה > דיירים > עלות. תגובות: קצר, עברית, אמוג'י, עד 200 מילה.`;
 }
 
 export async function chat(fromPhone, userContent) {
