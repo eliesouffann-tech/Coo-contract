@@ -62,6 +62,7 @@ app.post("/webhook", async (req, res) => {
 
   try {
   const msg = parseIncomingMessage(req.body);
+  if (msg) console.log(`📨 הודעה נכנסת מ-${msg.from} [${msg.type}]`);
   if (!msg) return;
 
   const { from, messageId, type, senderName: waName } = msg;
@@ -309,7 +310,13 @@ app.post("/webhook", async (req, res) => {
 
     console.log(`📨 [${senderName}] ${typeof claudeInput === "string" ? claudeInput.slice(0, 80) : claudeInput.summary}`);
 
-    const reply = await chat(from, claudeInput);
+    let reply;
+    try {
+      reply = await chat(from, claudeInput);
+    } catch (aiErr) {
+      console.error(`❌ שגיאת AI: ${aiErr.message}`);
+      reply = "⚠️ מצטער, אירעה שגיאה זמנית. נסה שוב בעוד רגע.";
+    }
     await sendMessage(from, reply);
     console.log(`📤 [${senderName}] ${reply.slice(0, 80)}`);
 
