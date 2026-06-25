@@ -83,6 +83,22 @@
   </div>
 </div>
 
+<!-- Visitt Work Orders -->
+<div class="section" style="padding:0 24px 12px"><h2>🔧 Visitt — קריאות שירות בזמן אמת</h2></div>
+<div class="two-col">
+  <div>
+    <table id="visitt-open-table">
+      <thead><tr><th>קריאה</th><th>עדיפות</th><th>קטגוריה</th><th>מיקום</th></tr></thead>
+      <tbody><tr><td colspan="4" class="loading" style="padding:12px">טוען...</td></tr></tbody>
+    </table>
+  </div>
+  <div>
+    <div class="card" id="visitt-stats-card" style="min-height:120px">
+      <span class="loading">טוען...</span>
+    </div>
+  </div>
+</div>
+
 <!-- Patterns & Projects -->
 <div class="two-col">
   <div>
@@ -257,10 +273,53 @@ async function loadProjects() {
   }
 }
 
+async function loadVisitt() {
+  const statsEl = document.getElementById('visitt-stats-card');
+  const tbody = document.querySelector('#visitt-open-table tbody');
+
+  try {
+    const stats = await fetchJSON('/api/visitt/stats');
+    if (!stats.visittReady) {
+      statsEl.innerHTML = '<div style="color:#64748b;font-size:0.85rem">Visitt לא מחובר.<br>הוסף VISITT_API_TOKEN ל-.env</div>';
+      tbody.innerHTML = '<tr><td colspan="4" style="padding:12px;color:#64748b">לא מחובר</td></tr>';
+      return;
+    }
+
+    const pEmoji = { critical:'🔴', urgent:'🟠', high:'🟡', normal:'🟢', low:'⚪' };
+    statsEl.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+        <div><div style="font-size:0.75rem;color:#94a3b8">פתוחות</div><div style="font-size:1.8rem;font-weight:700;color:#f8fafc">${stats.open}</div></div>
+        <div><div style="font-size:0.75rem;color:#94a3b8">באיחור</div><div style="font-size:1.8rem;font-weight:700;color:#f87171">${stats.overdue}</div></div>
+        <div><div style="font-size:0.75rem;color:#94a3b8">קריטי/דחוף</div><div style="font-size:1.8rem;font-weight:700;color:#fb923c">${stats.critical}</div></div>
+        <div><div style="font-size:0.75rem;color:#94a3b8">סה"כ</div><div style="font-size:1.8rem;font-weight:700">${stats.total}</div></div>
+      </div>
+      ${stats.topCategories?.length ? '<div style="font-size:0.8rem;color:#94a3b8;margin-bottom:6px">לפי קטגוריה:</div>' + stats.topCategories.map(([cat,n]) => `<div class="list-item"><span>${cat}</span><span class="badge gray">${n}</span></div>`).join('') : ''}
+    `;
+
+    const orders = await fetchJSON('/api/visitt/work-orders?status=open&limit=8').catch(() => ({ work_orders: [] }));
+    const wos = orders.work_orders ?? [];
+    if (!wos.length) { tbody.innerHTML = '<tr><td colspan="4" style="padding:12px;color:#64748b">אין קריאות פתוחות 🎉</td></tr>'; return; }
+
+    tbody.innerHTML = wos.map(w => {
+      const p = w.priority?.toLowerCase() ?? 'normal';
+      const em = pEmoji[p] ?? '⚪';
+      return `<tr>
+        <td>${(w.title ?? '').slice(0,45)}</td>
+        <td>${em} ${w.priority ?? '—'}</td>
+        <td>${w.category?.name ?? '—'}</td>
+        <td style="color:#94a3b8;font-size:0.8rem">${(w.location ?? '—').slice(0,20)}</td>
+      </tr>`;
+    }).join('');
+  } catch {
+    statsEl.innerHTML = '<div style="color:#64748b;font-size:0.85rem">שגיאה בטעינת Visitt</div>';
+    tbody.innerHTML = '<tr><td colspan="4" style="padding:12px;color:#f87171">שגיאת חיבור</td></tr>';
+  }
+}
+
 async function loadAll() {
   document.getElementById('status-dot').style.background = '#facc15';
   document.getElementById('status-text').textContent = 'מתרענן...';
-  await Promise.allSettled([loadKPIs(), loadTasks(), loadEmployees(), loadPatterns(), loadProjects()]);
+  await Promise.allSettled([loadKPIs(), loadTasks(), loadEmployees(), loadPatterns(), loadProjects(), loadVisitt()]);
 }
 
 // Auto-refresh every 60 seconds

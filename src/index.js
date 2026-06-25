@@ -18,6 +18,7 @@ import { logMessage, saveContact as saveEntityContact } from "./entities.js";
 import { shouldExtractTask, extractTaskFromMessage } from "./extractor.js";
 import { generateDailyReport, generateWeeklyReport, generateAuditReport } from "./report.js";
 import { addTask } from "./memory.js";
+import { isVisittReady, statusHe, priorityHe, priorityEmoji as visittEmoji } from "./visitt.js";
 
 const app = express();
 app.use(express.json());
@@ -148,6 +149,41 @@ app.post("/webhook", async (req, res) => {
         );
       } else {
         await sendMessage(from, `📧 מייל מוגדר: ${process.env.EMAIL_ADDRESS}\nאמור לי 'שלח מייל ל...' ואפעל.`);
+      }
+      return;
+    }
+
+    if (textLower === "/visitt" || textLower.startsWith("/visitt ")) {
+      if (!isVisittReady()) {
+        await sendMessage(from,
+          "🔧 *Visitt לא מחובר*\n\n" +
+          "הוסף ל-.env:\n" +
+          "`VISITT_API_TOKEN=your_partner_api_token`\n\n" +
+          "לקבלת ה-token: Visitt → Settings → Partner API"
+        );
+        return;
+      }
+      const { getStats } = await import("./visitt.js");
+      try {
+        const stats = await getStats();
+        const top3Cat = Object.entries(stats.byCategory).sort((a, b) => b[1] - a[1]).slice(0, 3);
+        let msg =
+          `🔧 *Visitt — סטטוס בזמן אמת*\n\n` +
+          `📋 קריאות פתוחות: *${stats.open}*\n` +
+          `⚠️ באיחור: *${stats.overdue}*\n` +
+          `🔴 קריטי/דחוף: *${stats.critical}*\n` +
+          `📊 סה"כ: ${stats.total}\n`;
+        if (top3Cat.length) {
+          msg += `\n🏷 *קטגוריות עיקריות:*\n`;
+          top3Cat.forEach(([cat, count]) => { msg += `• ${cat}: ${count}\n`; });
+        }
+        if (stats.criticalList?.length) {
+          msg += `\n🔴 *קריטיות/דחופות:*\n`;
+          stats.criticalList.slice(0, 3).forEach(w => { msg += `• ${w.title}\n`; });
+        }
+        await sendMessage(from, msg);
+      } catch (err) {
+        await sendMessage(from, `❌ שגיאת Visitt: ${err.message}`);
       }
       return;
     }
@@ -297,8 +333,64 @@ app.post("/webhook", async (req, res) => {
 });
 
 app.get("/health", (_req, res) =>
-  res.json({ status: "ok", calendar: isCalendarReady(), email: isEmailReady(), n8n: isN8nReady(), port: PORT })
+  res.json({ status: "ok", calendar: isCalendarReady(), email: isEmailReady(), n8n: isN8nReady(), visitt: isVisittReady(), port: PORT })
 );
+
+// ─── Visitt Webhook (real-time push from Visitt) ──────────────────────────────
+app.post("/webhook/visitt", async (req, res) => {
+  res.sendStatus(200); // respond fast, Visitt has 5s timeout
+  try {
+    const { event, workOrder } = req.body ?? {};
+    if (!event || !workOrder) return;
+
+    const profile = getProfile();
+    if (!profile.ownerPhone) return;
+
+    const emoji = visittEmoji(workOrder.priority);
+    const status = statusHe(workOrder.status);
+    const priority = priorityHe(workOrder.priority);
+
+    let msg;
+    if (event === "workOrder.created") {
+      // Auto-create internal task mirroring the Visitt work order
+      addTask({
+        title: `[Visitt] ${workOrder.title}`,
+        notes: `קריאה #${workOrder._id} | ${workOrder.location ?? ""} | עדיפות: ${priority}`,
+      });
+
+      msg =
+        `${emoji} *קריאה חדשה ב-Visitt*\n` +
+        `📋 *${workOrder.title}*\n` +
+        `📍 מיקום: ${workOrder.location ?? "—"}\n` +
+        `🎯 עדיפות: ${priority}\n` +
+        `🏷 קטגוריה: ${workOrder.category?.name ?? "—"}\n` +
+        `👷 שויך ל: ${workOrder.assignedTo?.name ?? "לא שויך"}\n` +
+        `🆔 מזהה: ${workOrder._id}`;
+
+    } else if (event === "workOrder.statusUpdated") {
+      msg =
+        `🔄 *עדכון קריאה Visitt*\n` +
+        `📋 *${workOrder.title}*\n` +
+        `✅ סטטוס חדש: *${status}*\n` +
+        `🆔 ${workOrder._id}`;
+
+    } else if (event === "workOrder.commented") {
+      const comment = workOrder.lastComment ?? "";
+      msg =
+        `💬 *הערה חדשה בקריאה Visitt*\n` +
+        `📋 ${workOrder.title}\n` +
+        `💬 ${comment.slice(0, 200)}\n` +
+        `🆔 ${workOrder._id}`;
+    }
+
+    if (msg) {
+      await sendMessage(profile.ownerPhone, msg).catch(() => {});
+      console.log(`🔧 Visitt event: ${event} — ${workOrder.title}`);
+    }
+  } catch (err) {
+    console.error("❌ Visitt webhook error:", err.message);
+  }
+});
 
 app.use(express.static("public"));
 app.get("/dashboard", (_req, res) => res.sendFile("dashboard.html", { root: "public" }));
@@ -339,7 +431,9 @@ async function start() {
   if (isCalendarReady()) console.log("📅 Google Calendar מחובר ✅");
   if (isEmailReady())    console.log("📧 שליחת מייל מוגדרת ✅");
   if (isN8nReady())      console.log(`🔀 n8n מחובר ✅  (${process.env.N8N_WEBHOOK_URL})`);
-  console.log(`🔌 REST API זמין ב: /api  (הגן עם N8N_API_KEY ב-.env)`);
+  if (isVisittReady())   console.log("🔧 Visitt מחובר ✅  (Partner API)");
+  console.log(`🔌 REST API זמין ב: /api`);
+  console.log(`📊 דאשבורד זמין ב: /dashboard`);
 }
 
 async function startNgrok() {

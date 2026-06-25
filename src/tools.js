@@ -19,6 +19,11 @@ import {
 import { getTaskAnalytics, detectPatterns, getEmployeeInsights } from "./analytics.js";
 import { generateDailyReport, generateWeeklyReport, generateAuditReport } from "./report.js";
 import { scorePriority } from "./priority.js";
+import {
+  isVisittReady, getWorkOrders, createWorkOrder, updateWorkOrder,
+  getStats as getVisittStats, getCategories,
+  statusHe, priorityHe, priorityEmoji as visittPriorityEmoji,
+} from "./visitt.js";
 
 export const TOOLS = [
   // ── Memory ──────────────────────────────────────────────────────────────────
@@ -214,6 +219,60 @@ export const TOOLS = [
         ownerPhone: { type: "string" },
       },
     },
+  },
+
+  // ── VISITT ────────────────────────────────────────────────────────────────────
+  {
+    name: "visitt_get_work_orders",
+    description: "מביא קריאות שירות פתוחות מ-Visitt בזמן אמת. פילטר לפי סטטוס, עדיפות, קטגוריה.",
+    input_schema: {
+      type: "object",
+      properties: {
+        status: { type: "string", description: "open | in-progress | completed | pending" },
+        priority: { type: "string", description: "critical | urgent | high | normal | low" },
+        limit: { type: "number", description: "כמות תוצאות (ברירת מחדל: 20)" },
+      },
+    },
+  },
+  {
+    name: "visitt_get_stats",
+    description: "סטטיסטיקות Visitt בזמן אמת: כמה קריאות פתוחות, כמה באיחור, כמה קריטיות, חלוקה לפי קטגוריה.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "visitt_create_work_order",
+    description: "פותח קריאת שירות חדשה ב-Visitt. השתמש כשמישהו מדווח על תקלה או ביקש תיקון.",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "כותרת הקריאה" },
+        description: { type: "string", description: "תיאור מפורט" },
+        location: { type: "string", description: "מיקום: חדר, קומה, מחלקה" },
+        priority: { type: "string", enum: ["critical", "urgent", "high", "normal", "low"] },
+        category: { type: "string", description: "קטגוריה: Plumbing, Electrical, HVAC, Cleaning, Safety..." },
+        due_date: { type: "string", description: "תאריך יעד ISO" },
+      },
+      required: ["title"],
+    },
+  },
+  {
+    name: "visitt_update_work_order",
+    description: "מעדכן קריאת שירות ב-Visitt — שינוי סטטוס, עדיפות, הוספת הערה.",
+    input_schema: {
+      type: "object",
+      properties: {
+        work_order_id: { type: "string", description: "מזהה הקריאה (_id)" },
+        status: { type: "string", enum: ["open", "in-progress", "completed", "closed", "cancelled", "on-hold"] },
+        priority: { type: "string", enum: ["critical", "urgent", "high", "normal", "low"] },
+        note: { type: "string", description: "הערה או עדכון סטטוס" },
+      },
+      required: ["work_order_id"],
+    },
+  },
+  {
+    name: "visitt_get_categories",
+    description: "מביא רשימת קטגוריות וקטגוריות משנה מ-Visitt (אינסטלציה, חשמל, HVAC, ניקיון...).",
+    input_schema: { type: "object", properties: {} },
   },
 
   // ── n8n Automation ────────────────────────────────────────────────────────────
@@ -556,6 +615,72 @@ export async function executeTool(name, input) {
       const current = getProfile();
       saveProfile({ ...current, ...input });
       return { success: true };
+    }
+
+    // ── Visitt ─────────────────────────────────────────────────────────────────
+    case "visitt_get_work_orders": {
+      if (!isVisittReady()) return { error: "VISITT_API_TOKEN לא מוגדר ב-.env" };
+      const orders = await getWorkOrders({ status: input.status, priority: input.priority, limit: input.limit ?? 20 });
+      return {
+        count: orders.length,
+        work_orders: orders.map(w => ({
+          id: w._id,
+          title: w.title,
+          status: statusHe(w.status),
+          priority: priorityHe(w.priority),
+          priorityEmoji: visittPriorityEmoji(w.priority),
+          category: w.category?.name ?? "—",
+          location: w.location ?? "—",
+          assignedTo: w.assignedTo?.name ?? "לא שויך",
+          dueDate: w.dueDate ?? "—",
+          createdAt: w.createdAt,
+        })),
+      };
+    }
+
+    case "visitt_get_stats": {
+      if (!isVisittReady()) return { error: "VISITT_API_TOKEN לא מוגדר ב-.env" };
+      const stats = await getVisittStats();
+      return {
+        open: stats.open,
+        overdue: stats.overdue,
+        critical: stats.critical,
+        total: stats.total,
+        byStatus: stats.byStatus,
+        byPriority: stats.byPriority,
+        topCategories: Object.entries(stats.byCategory).sort((a, b) => b[1] - a[1]).slice(0, 5),
+        overdueList: stats.overdueList.map(w => ({ id: w._id, title: w.title, dueDate: w.dueDate })),
+        criticalList: stats.criticalList.map(w => ({ id: w._id, title: w.title, status: statusHe(w.status) })),
+      };
+    }
+
+    case "visitt_create_work_order": {
+      if (!isVisittReady()) return { error: "VISITT_API_TOKEN לא מוגדר ב-.env" };
+      const wo = await createWorkOrder({
+        title: input.title,
+        description: input.description,
+        location: input.location,
+        priority: input.priority ?? "normal",
+        dueDate: input.due_date,
+      });
+      console.log(`🔧 Visitt WO created: ${wo._id} — ${input.title}`);
+      return { success: true, id: wo._id, title: wo.title, status: statusHe(wo.status) };
+    }
+
+    case "visitt_update_work_order": {
+      if (!isVisittReady()) return { error: "VISITT_API_TOKEN לא מוגדר ב-.env" };
+      const wo = await updateWorkOrder(input.work_order_id, {
+        status: input.status,
+        priority: input.priority,
+        note: input.note,
+      });
+      return { success: true, id: wo?._id, status: statusHe(wo?.status), updatedAt: wo?.updatedAt };
+    }
+
+    case "visitt_get_categories": {
+      if (!isVisittReady()) return { error: "VISITT_API_TOKEN לא מוגדר ב-.env" };
+      const cats = await getCategories();
+      return { categories: cats.map(c => ({ id: c._id, name: c.name, subcategories: c.subcategories?.map(s => s.name) ?? [] })) };
     }
 
     // n8n

@@ -7,6 +7,7 @@ import { TOOLS, executeTool } from "./tools.js";
 import { isCalendarReady, getUpcomingEventsText } from "./calendar.js";
 import { isEmailReady } from "./email.js";
 import { isN8nReady } from "./n8n.js";
+import { isVisittReady } from "./visitt.js";
 import { webSearch } from "./search.js";
 
 const groq = new OpenAI({
@@ -68,6 +69,9 @@ async function buildSystemPrompt(fromPhone) {
 
   const emailStatus = isEmailReady() ? "" : "\n⚠️ מייל: הוסף EMAIL_ADDRESS ו-EMAIL_APP_PASSWORD ל-.env";
   const n8nStatus = isN8nReady() ? "\n🔀 n8n: trigger_n8n_workflow זמין לאוטומציות." : "";
+  const visittStatus = isVisittReady()
+    ? "\n🔧 Visitt מחובר — visitt_get_work_orders / visitt_create_work_order / visitt_get_stats / visitt_update_work_order זמינים."
+    : "";
 
   let senderCtx;
   if (isOwner) {
@@ -89,7 +93,7 @@ ${notes}
 ${contacts}
 
 ✅ משימות פתוחות:
-${tasks}${emailStatus}${n8nStatus}
+${tasks}${emailStatus}${n8nStatus}${visittStatus}
 
 ━━━ עקרונות עבודה ━━━
 
@@ -115,6 +119,8 @@ CRITICAL: ענה תמיד בעברית בלבד. אסור לענות באנגל�
 • "הפק דוח" → generate_daily_report / generate_weekly_report
 • "ביקורת" → generate_audit_report
 • משימה עם מילות דחיפות/בטיחות → add_task_with_priority
+• "כמה קריאות פתוחות?" / "תקלה חדשה" → visitt_get_stats / visitt_create_work_order
+• "עדכן/סגור קריאה Visitt" → visitt_update_work_order
 • לחיפוש מידע עדכני → web_search
 
 עדיפות בסיס: בטיחות > רגולציה > דיירים/מטופלים > עלות > דחיפות

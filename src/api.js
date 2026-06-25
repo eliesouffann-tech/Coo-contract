@@ -10,6 +10,7 @@ import {
 import { getUpcoming, addReminder, removeReminder } from "./scheduler.js";
 import { getEmployeeRanking, getVendors, getProjects, getDecisions } from "./entities.js";
 import { detectPatterns, getTaskAnalytics } from "./analytics.js";
+import { isVisittReady, getWorkOrders, getStats as getVisittStats, createWorkOrder, updateWorkOrder } from "./visitt.js";
 
 export const apiRouter = express.Router();
 
@@ -154,4 +155,35 @@ apiRouter.get("/analytics/tasks", (req, res) => {
 
 apiRouter.get("/analytics/patterns", (_req, res) => {
   res.json({ patterns: detectPatterns() });
+});
+
+// ── Visitt (real-time) ─────────────────────────────────────────────────────────
+apiRouter.get("/visitt/work-orders", async (req, res) => {
+  if (!isVisittReady()) return res.status(503).json({ error: "VISITT_API_TOKEN not configured" });
+  try {
+    const orders = await getWorkOrders({ status: req.query.status, priority: req.query.priority, limit: parseInt(req.query.limit ?? "50") });
+    res.json({ count: orders.length, work_orders: orders });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+apiRouter.get("/visitt/stats", async (_req, res) => {
+  if (!isVisittReady()) return res.status(503).json({ error: "VISITT_API_TOKEN not configured", visittReady: false });
+  try { res.json({ ...(await getVisittStats()), visittReady: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+apiRouter.post("/visitt/work-orders", async (req, res) => {
+  if (!isVisittReady()) return res.status(503).json({ error: "VISITT_API_TOKEN not configured" });
+  try {
+    const wo = await createWorkOrder(req.body);
+    res.json({ success: true, work_order: wo });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+apiRouter.patch("/visitt/work-orders/:id", async (req, res) => {
+  if (!isVisittReady()) return res.status(503).json({ error: "VISITT_API_TOKEN not configured" });
+  try {
+    const wo = await updateWorkOrder(req.params.id, req.body);
+    res.json({ success: true, work_order: wo });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
