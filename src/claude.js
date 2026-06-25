@@ -15,7 +15,8 @@ const groq = new OpenAI({
   baseURL: "https://api.groq.com/openai/v1",
 });
 
-const MODEL = "llama-3.3-70b-versatile";
+const MODEL = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+const FALLBACK_MODEL = "llama3-70b-8192";
 const VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 
 const WEB_SEARCH_TOOL = {
@@ -162,8 +163,9 @@ export async function chat(fromPhone, userContent) {
     { role: "user", content: userText },
   ];
 
-  async function callGroq(msgs, withTools = true) {
-    const params = { model: MODEL, messages: msgs, max_tokens: 600 };
+  async function callGroq(msgs, withTools = true, modelOverride = null) {
+    const model = modelOverride ?? MODEL;
+    const params = { model, messages: msgs, max_tokens: 600 };
     if (withTools) {
       params.tools = groqTools;
       params.tool_choice = "auto";
@@ -171,9 +173,15 @@ export async function chat(fromPhone, userContent) {
     try {
       return await groq.chat.completions.create(params);
     } catch (err) {
-      if (withTools && err.status === 400) {
+      const status = err.status ?? err.response?.status;
+      if (withTools && (status === 400 || status === 422)) {
         console.warn("⚠️ Tool validation error, retrying without tools:", err.message?.slice(0, 120));
-        return callGroq(msgs, false);
+        return callGroq(msgs, false, modelOverride);
+      }
+      // If primary model fails, try fallback model
+      if (!modelOverride && model !== FALLBACK_MODEL && (status === 404 || status === 503 || status === 500)) {
+        console.warn(`⚠️ Model ${model} failed (${status}), trying fallback: ${FALLBACK_MODEL}`);
+        return callGroq(msgs, false, FALLBACK_MODEL);
       }
       throw err;
     }

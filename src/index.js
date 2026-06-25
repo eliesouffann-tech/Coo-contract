@@ -97,6 +97,18 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
+    if (textLower === "/ai-test") {
+      await sendMessage(from, "🔄 בודק חיבור ל-Groq AI...");
+      try {
+        const testReply = await chat("test-internal", "ענה בדיוק: OK");
+        await sendMessage(from, `✅ Groq AI פועל!\nמודל: ${process.env.GROQ_MODEL || "llama-3.3-70b-versatile"}\nתגובה: ${testReply.slice(0, 80)}`);
+      } catch (e) {
+        const errStatus = e.status ?? e.response?.status ?? "err";
+        await sendMessage(from, `❌ Groq AI נכשל (${errStatus}):\n${e.message?.slice(0, 280)}`);
+      }
+      return;
+    }
+
     if (textLower === "/reset") {
       clearConversation(from);
       await sendMessage(from, "✅ השיחה אופסה.");
@@ -314,8 +326,9 @@ app.post("/webhook", async (req, res) => {
     try {
       reply = await chat(from, claudeInput);
     } catch (aiErr) {
-      console.error(`❌ שגיאת AI: ${aiErr.message}`);
-      reply = "⚠️ מצטער, אירעה שגיאה זמנית. נסה שוב בעוד רגע.";
+      const errDetail = aiErr.message?.slice(0, 200) ?? String(aiErr);
+      console.error(`❌ שגיאת AI [${aiErr.status ?? "no-status"}]: ${errDetail}`);
+      reply = `⚠️ שגיאת AI (${aiErr.status ?? "err"}): ${errDetail}\n\nשלח /ping לבדיקת WhatsApp, /ai-test לבדיקת Groq.`;
     }
     await sendMessage(from, reply);
     console.log(`📤 [${senderName}] ${reply.slice(0, 80)}`);
