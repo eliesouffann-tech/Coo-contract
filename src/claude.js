@@ -15,11 +15,10 @@ const groq = new OpenAI({
   baseURL: "https://api.groq.com/openai/v1",
 });
 
-// gemma2-9b-it:            15K TPM, 500K TPD — handles large prompts ✅
-// llama-3.1-8b-instant:    6K TPM (too small for our prompt+tools)
-// llama-3.3-70b-versatile: 6K TPM, 100K TPD (hits daily limit fast)
-const MODEL = process.env.GROQ_MODEL || "gemma2-9b-it";
-const FALLBACK_MODEL = "llama-3.1-8b-instant";
+// llama-3.1-8b-instant:    6K TPM, 500K TPD — fits our ~4K token requests ✅
+// llama-3.3-70b-versatile: 6K TPM, 100K TPD (hits daily limit ~25 msgs/day)
+const MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
+const FALLBACK_MODEL = "llama-3.3-70b-versatile";
 const VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 
 const WEB_SEARCH_TOOL = {
